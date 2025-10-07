@@ -1,7 +1,7 @@
 /**
  * Gestiona la creación y aplicación automática de temas,
  * inyectando un botón y los estilos base necesarios.
- * @version 5.1 - Iconos SVG integrados
+ * @version 5.2 - Lógica de iconos corregida
  * @author HECTOR DANIEL AYARACHI FUENTES
  */
 
@@ -65,6 +65,7 @@ const SUN_ICON = `
 <g clip-path="url(#clip-2-sun)"><g clip-path="url(#clip-3-sun)"><g clip-path="url(#clip-3-sun)"><path fill-rule="nonzero" fill="url(#radial-pattern-1)" d="M 465.40625 458.820312 L 465.40625 2431.015625 L 2416.308594 2431.015625 L 2416.308594 458.820312 Z M 465.40625 458.820312 "/></g></g></g>
 </svg>
 `;
+
 
 class AutoTheme {
   #baseColors;
@@ -338,8 +339,8 @@ class AutoTheme {
 
   #updateToggleButton() {
     if (!this.#toggleButton) return;
-    // --- MODIFICADO: Usa los iconos SVG en lugar de emojis ---
-    this.#toggleButton.innerHTML = this.#isDark ? SUN_ICON : MOON_ICON;
+    // --- CORREGIDO: Muestra el icono del tema actual ---
+    this.#toggleButton.innerHTML = this.#isDark ? MOON_ICON : SUN_ICON;
     this.#toggleButton.style.backgroundColor = 'var(--color-surface)';
     this.#toggleButton.style.color = 'var(--color-text)';
   }
