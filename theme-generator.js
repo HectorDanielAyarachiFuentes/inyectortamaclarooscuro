@@ -212,6 +212,12 @@ class AutoTheme {
       if (this.#isDark === isDark && document.documentElement.hasAttribute('data-theme-initialized')) return;
 
       this.#isDark = isDark;
+      
+      // Añadimos una clase para la animación y la removemos cuando termina
+      if (this.#toggleButton) {
+        this.#toggleButton.classList.add('is-switching');
+        this.#toggleButton.addEventListener('animationend', () => this.#toggleButton.classList.remove('is-switching'), { once: true });
+      }
       this.#toggleButton?.setAttribute('aria-pressed', String(isDark));
 
       if (document.startViewTransition) {
@@ -269,13 +275,13 @@ class AutoTheme {
       width: '50px',
       height: '50px',
       borderRadius: '50%',
-      border: 'none',
+      border: '1px solid rgba(0, 0, 0, 0.1)',
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: '24px',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+      boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
       zIndex: '9999',
       transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease'
     });
@@ -390,6 +396,17 @@ class AutoTheme {
       ${exclusionSelector} {
         filter: invert(1) hue-rotate(180deg);
       }
+
+      @keyframes rotate-icon {
+        0% { transform: rotate(-90deg) scale(0); opacity: 0; }
+        70% { transform: rotate(20deg) scale(1.2); opacity: 1; }
+        100% { transform: rotate(0deg) scale(1); opacity: 1; }
+      }
+
+      #theme-toggle-button.is-switching svg {
+        animation: rotate-icon 0.4s ${transitionTimingFunction};
+      }
+
     `;
     document.head.appendChild(style);
   }
