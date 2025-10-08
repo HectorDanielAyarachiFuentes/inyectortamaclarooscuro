@@ -932,6 +932,34 @@ class AutoTheme {
         }
       }
 
+      @keyframes meteor-trail {
+        0% {
+          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
+        }
+        50% {
+          box-shadow: 2px -2px 8px rgba(255, 150, 0, 0.8), 
+                      3px -3px 12px rgba(255, 50, 0, 0.6), 
+                      4px -4px 16px rgba(255, 200, 0, 0.5);
+        }
+        100% {
+          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
+        }
+      }
+
+      /* Animación de estela de HIELO para el tema oscuro (luna) */
+      @keyframes ice-trail {
+        0% {
+          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
+        }
+        50% {
+          box-shadow: 2px -2px 8px rgba(173, 216, 230, 0.9), /* lightblue */
+                      3px -3px 12px rgba(0, 255, 255, 0.7),   /* cyan */
+                      4px -4px 16px rgba(224, 255, 255, 0.6); /* lightcyan */
+        }
+        100% {
+          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
+        }
+      }
       /* Animación de estela de HIELO para el tema oscuro (luna) */
       @keyframes ice-trail {
         0% {
@@ -983,8 +1011,8 @@ class AutoTheme {
 
       .tutorial-active ~ .theme-is-light .theme-satellite-button,
       .tutorial-active ~ .theme-is-dark .theme-satellite-button { animation: none; }
-      body:not(.tutorial-active) .theme-is-light .theme-satellite-button { animation: meteor-trail 2s linear infinite; }
-      body:not(.tutorial-active) .theme-is-dark .theme-satellite-button { animation: ice-trail 2s linear infinite; }
+      body.theme-is-light .theme-satellite-button { animation: meteor-trail 2s linear infinite; }
+      body.theme-is-dark .theme-satellite-button { animation: ice-trail 2s linear infinite; }
     `;
   }
 
