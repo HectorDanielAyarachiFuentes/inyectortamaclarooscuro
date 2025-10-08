@@ -84,6 +84,10 @@ class AutoTheme {
   #shortcutKey = 't'; // Tecla para restaurar el botón de tema.
   #modalObserver; // Observador de mutaciones para detectar modales.
 
+  #tutorialActive = false; // Estado del tutorial de bienvenida.
+  #tutorialStep = 0; // Paso actual del tutorial.
+  #tutorialTooltip; // Elemento para mostrar mensajes del tutorial.
+
   #gradientSelectorInstance; // Almacenará la instancia de GradientSelector
   /**
    * Inicializa la clase.
@@ -108,6 +112,7 @@ class AutoTheme {
     this.#shortcutKey = this.#buttonOptions.shortcutKey || 't';
     this.#gradientSelectorInstance = this.#buttonOptions.gradientSelector;
     this.#isTriggerPermanentlyHidden = localStorage.getItem('theme-button-hidden') === 'true';
+    this.#tutorialActive = localStorage.getItem('theme-tutorial-completed') !== 'true';
 
     // Inicia todo el proceso.
     this.#init();
@@ -365,6 +370,16 @@ class AutoTheme {
     const liveRegion = document.getElementById('theme-announcer');
     if (liveRegion) liveRegion.textContent = `Tema cambiado a modo ${this.#isDark ? 'oscuro' : 'claro'}.`;
 
+    // Añade una clase al body para reflejar el estado actual del tema.
+    // Esto facilitará la aplicación de estilos específicos para cada tema, como las animaciones de los satélites.
+    if (this.#isDark) {
+      document.body.classList.add('theme-is-dark');
+      document.body.classList.remove('theme-is-light');
+    } else {
+      document.body.classList.add('theme-is-light');
+      document.body.classList.remove('theme-is-dark');
+    }
+
     // La lógica principal: si el estado deseado (isDark) es diferente al estado inicial de la página,
     // se aplica el atributo `data-theme="inverted"` al <html> para activar el filtro CSS.
     if (this.#isPageInitiallyDark !== this.#isDark) {
@@ -418,12 +433,19 @@ class AutoTheme {
     Object.assign(this.#triggerContainer.style, {
       position: 'fixed',
       ...initialPositionStyles,
+      width: '120px', // Ancho y alto fijos para contener la órbita
+      height: '120px',
       zIndex: '9999',
       display: this.#isTriggerPermanentlyHidden ? 'none' : 'flex',
-      alignItems: 'flex-start',
-      transition: 'transform 0.3s ease, opacity 0.3s ease',
+      alignItems: 'center', // Centra los hijos verticalmente
+      justifyContent: 'center', // Centra los hijos horizontalmente
       pointerEvents: 'none' // El contenedor no captura eventos, solo los botones.
     });
+
+    // Si el tutorial está activo, añade una clase para gestionar los estilos iniciales.
+    if (this.#tutorialActive) {
+      this.#triggerContainer.classList.add('tutorial-active');
+    }
 
     // 2. Crear el botón principal de tema
     this.#toggleButton = document.createElement('button');
@@ -431,7 +453,7 @@ class AutoTheme {
     this.#toggleButton.setAttribute('aria-label', 'Cambiar entre tema claro y oscuro');
 
     Object.assign(this.#toggleButton.style, {
-      position: 'relative', // Para establecer un contexto de apilamiento.
+      position: 'relative', // Posición relativa para que z-index funcione
       width: '50px',
       height: '50px',
       borderRadius: '50%',
@@ -444,58 +466,67 @@ class AutoTheme {
       boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
       transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease',
       pointerEvents: 'auto', // El botón sí captura eventos.
-      zIndex: '2' // Asegura que el botón principal esté por encima de la órbita.
+      zIndex: '3' // Asegura que el botón principal esté por encima de la órbita y el tooltip.
     });
 
     this.#toggleButton.addEventListener('mouseover', () => this.#toggleButton.style.transform = 'scale(1.1)');
     this.#toggleButton.addEventListener('mouseout', () => this.#toggleButton.style.transform = 'scale(1)');
     this.#toggleButton.addEventListener('click', (e) => this.setTheme(!this.#isDark, true, e));
+    
+    if (this.#tutorialActive) {
+      this.#toggleButton.addEventListener('mouseover', this.#handleTutorialStart.bind(this), { once: true });
+    }
+
+    // 3. Crear los botones satélite (cierre y modal de gradientes)
+
+    // 5. Añadir todo al DOM y hacer arrastrable el contenedor
+    document.body.appendChild(this.#triggerContainer);
+    this.#triggerContainer.appendChild(this.#toggleButton);
+    this.#triggerContainer.appendChild(this.#createSatelliteButtons());
+    this.#makeDraggable(this.#triggerContainer);
+  }
+
+
+  #createSatelliteButtons(orbitContainer) {
+    let gradientModalButton;
+    // Botón para abrir el modal de gradientes (?)
 
     // 3. Crear el contenedor para los satélites en órbita
     const orbitWrapper = document.createElement('div');
+    orbitWrapper.id = 'theme-orbit-wrapper';
     Object.assign(orbitWrapper.style, {
-        position: 'absolute',
-        width: '100%',
-        height: '100%',
-        animation: 'orbit 15s linear infinite',
-        pointerEvents: 'none', // El wrapper no interfiere con los clics.
-        zIndex: '3' // Se posiciona por encima del botón principal para que la 'X' sea visible.
+      position: 'absolute',
+      // Hacemos el wrapper más grande que el botón para que la órbita no se corte
+      width: '120px',
+      height: '120px', // El tamaño ya está definido en el contenedor padre
+      animation: 'orbit 10s linear infinite',
+      pointerEvents: 'none', // El wrapper no interfiere con los clics.
+      zIndex: '1' // Detrás del botón principal
     });
     orbitWrapper.setAttribute('data-theme-exclude', 'animation-wrapper'); // Excluir para que la animación no se invierta.
+    
     // Pausar la animación al pasar el ratón por el contenedor principal
     this.#triggerContainer.addEventListener('mouseenter', () => orbitWrapper.style.animationPlayState = 'paused');
     this.#triggerContainer.addEventListener('mouseleave', () => orbitWrapper.style.animationPlayState = 'running');
 
-    // 4. Crear los botones satélite (cierre y modal de gradientes)
-    this.#createSatelliteButtons(orbitWrapper);
-
-    // 5. Añadir todo al DOM y hacer arrastrable el contenedor
-    this.#triggerContainer.appendChild(this.#toggleButton);
-    this.#triggerContainer.appendChild(orbitWrapper);
-    document.body.appendChild(this.#triggerContainer);
-    this.#makeDraggable(this.#triggerContainer);
-  }
-
-  #createSatelliteButtons(orbitContainer) {
-    // Botón para abrir el modal de gradientes (?)
     if (this.#gradientSelectorInstance) {
-      const gradientModalButton = document.createElement('button');
+      gradientModalButton = document.createElement('button');
       gradientModalButton.innerHTML = '?';
       gradientModalButton.setAttribute('aria-label', 'Abrir selector de fondos');
       gradientModalButton.title = 'Abrir selector de fondos (Sorpresas)';
       Object.assign(gradientModalButton.style, {
         width: '24px', height: '24px', borderRadius: '50%',
-        border: '1px solid rgba(var(--color-text-rgb), 0.2)',
+        border: '1px solid rgba(var(--color-text-rgb), 0.1)',
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
-        cursor: 'pointer', position: 'absolute',
-        top: 'calc(50% - 12px)', // Posición inicial en el ecuador derecho de la órbita
-        left: 'calc(100% + 18px)', // Aumentado el margen
+        cursor: 'pointer',
+        position: 'absolute',
+        top: 'calc(50% - 12px)', // Posicionado en el ecuador derecho de la órbita
+        left: 'calc(100% - 12px)', // A 38px del centro (50% del wrapper de 120px = 60px - 12px = 48px. Ajustemos)
         fontSize: '16px', lineHeight: '22px', padding: '0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        display: this.#tutorialActive ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
         transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
         pointerEvents: 'auto',
-        animation: 'comet-trail 1.5s linear infinite' // Añadida animación de estela
       });
       gradientModalButton.addEventListener('click', () => {
         this.#gradientSelectorInstance.toggleModal(true);
@@ -504,7 +535,7 @@ class AutoTheme {
         gradientModalButton.style.backgroundColor = 'var(--color-surface)';
         gradientModalButton.style.color = 'var(--color-text)';
       });
-      orbitContainer.appendChild(gradientModalButton);
+      orbitWrapper.appendChild(gradientModalButton);
     }
 
     // Botón de cierre permanente (X)
@@ -515,23 +546,23 @@ class AutoTheme {
 
     Object.assign(closePermanentlyButton.style, {
         width: '24px',
-        height: '24px', borderRadius: '50%',
-        border: '1px solid rgba(var(--color-text-rgb), 0.2)',
+        height: '24px',
+        borderRadius: '50%',
+        border: '1px solid rgba(var(--color-text-rgb), 0.1)',
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
         cursor: 'pointer',
-        position: 'absolute', // La animación 'orbit' moverá el wrapper, y este botón con él.
-        top: '-22px', // Aleja aún más el botón 'X' para mayor margen
+        position: 'absolute',
+        top: '0px', // Posicionado en el polo norte de la órbita
         left: 'calc(50% - 12px)',
         fontSize: '16px',
         lineHeight: '22px',
         padding: '0',
-        display: 'flex',
+        display: this.#tutorialActive ? 'none' : 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-        transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
+        transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease',
         pointerEvents: 'auto', // Este botón sí captura eventos.
-        animation: 'comet-trail 1.5s linear infinite' // Añadida animación de estela
     });
     closePermanentlyButton.addEventListener('click', () => this.#togglePermanentTriggerVisibility(true));
     window.addEventListener('themechange', () => {
@@ -540,7 +571,96 @@ class AutoTheme {
         closePermanentlyButton.style.borderColor = 'rgba(var(--color-text-rgb), 0.2)';
     });
 
-    orbitContainer.appendChild(closePermanentlyButton);
+    orbitWrapper.appendChild(closePermanentlyButton);
+
+    // Asignar la animación a los botones satélite.
+    // La animación correcta se aplicará mediante CSS dependiendo de la clase en el body.
+    [gradientModalButton, closePermanentlyButton].forEach(btn => {
+      if (!btn) return;
+      btn.classList.add('theme-satellite-button');
+    });
+
+    // Ajustar posiciones para una órbita más limpia
+    if (gradientModalButton) gradientModalButton.style.left = 'calc(100% - 12px - 22px)'; // 120/2 - 12 = 48px del centro
+    if (closePermanentlyButton) closePermanentlyButton.style.top = '22px';
+
+    return orbitWrapper;
+  }
+
+  // --- MÉTODOS DEL TUTORIAL ---
+
+  #handleTutorialStart() {
+    if (this.#tutorialStep !== 0) return;
+    this.#tutorialStep = 1;
+
+    // 1. Añadir animación de destello
+    this.#toggleButton.classList.add('sparkle');
+
+    // 2. Mostrar el primer mensaje
+    this.#showTutorialTooltip(`¡Hey tú! Pulsa la tecla '${this.#shortcutKey.toUpperCase()}'`);
+
+    // 3. Escuchar la pulsación de tecla
+    window.addEventListener('keydown', this.#handleTutorialKeyPress.bind(this));
+  }
+
+  #handleTutorialKeyPress(e) {
+    if (e.key.toLowerCase() !== this.#shortcutKey) return;
+
+    if (this.#tutorialStep === 1) {
+      this.#tutorialStep = 2;
+      
+      // Mostrar el botón 'X'
+      const closeButton = this.#triggerContainer.querySelector('button[aria-label*="Ocultar"]');
+      if (closeButton) {
+        closeButton.style.display = 'flex';
+        closeButton.classList.add('tutorial-reveal');
+      }
+
+      this.#showTutorialTooltip('Con esto, puedes ocultarme...');
+
+      setTimeout(() => {
+        if (this.#tutorialStep !== 2) return; // Si el usuario avanzó muy rápido
+        this.#showTutorialTooltip(`¡Otra vez! Pulsa '${this.#shortcutKey.toUpperCase()}' para una sorpresa.`);
+        this.#tutorialStep = 3;
+      }, 3000);
+
+    } else if (this.#tutorialStep === 3) {
+      this.#tutorialStep = 4;
+
+      // Mostrar el botón '?' si existe
+      const gradientButton = this.#triggerContainer.querySelector('button[aria-label*="Abrir selector"]');
+      if (gradientButton) {
+        gradientButton.style.display = 'flex';
+        gradientButton.classList.add('tutorial-reveal');
+      }
+
+      // Finalizar tutorial
+      this.#hideTutorialTooltip();
+      this.#toggleButton.classList.remove('sparkle');
+      this.#triggerContainer.classList.remove('tutorial-active');
+      localStorage.setItem('theme-tutorial-completed', 'true');
+      
+      // Limpiar el listener para que no interfiera más
+      window.removeEventListener('keydown', this.#handleTutorialKeyPress.bind(this));
+    }
+  }
+
+  #showTutorialTooltip(message) {
+    if (!this.#tutorialTooltip) {
+      this.#tutorialTooltip = document.createElement('div');
+      this.#tutorialTooltip.id = 'theme-tutorial-tooltip'; // El ID es útil para estilos
+      this.#triggerContainer.appendChild(this.#tutorialTooltip);
+    }
+    this.#tutorialTooltip.textContent = message; // El posicionamiento se maneja puramente con CSS
+    this.#tutorialTooltip.style.opacity = '1';
+    this.#tutorialTooltip.style.transform = 'translateY(0) scale(1)';
+  }
+
+  #hideTutorialTooltip() {
+    if (this.#tutorialTooltip) {
+      this.#tutorialTooltip.style.opacity = '0';
+      this.#tutorialTooltip.style.transform = 'translateY(10px) scale(0.9)'; // El posicionamiento se maneja puramente con CSS
+    }
   }
 
   #togglePermanentTriggerVisibility(hide) {
@@ -775,30 +895,93 @@ class AutoTheme {
         0% { transform: scale(0) rotate(180deg); opacity: 0; }
         100% { transform: scale(1) rotate(0deg); opacity: 1; }
       }
-      /* Animación de órbita para el botón 'X' */
+
+      /* Animación de órbita para el contenedor de los satélites */
       @keyframes orbit {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
       }
+
       /* Animación de reconstrucción para el satélite 'X' */
       @keyframes reconstruct-satellite {
         from { transform: scale(0); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
       }
-      /* Animación de estela para los satélites */
-      @keyframes comet-trail {
+
+      /* Animación de destello para el tutorial */
+      @keyframes sparkle-effect {
+        0%, 100% { box-shadow: 0 0 8px 3px rgba(255, 255, 0, 0.7), 0 0 12px 5px rgba(255, 165, 0, 0.5); }
+        50% { box-shadow: 0 0 16px 6px rgba(255, 255, 0, 1), 0 0 24px 10px rgba(255, 165, 0, 0.7); }
+      }
+      #theme-toggle-button.sparkle { animation: sparkle-effect 1.5s ease-in-out infinite; }
+      /* Animación de estela de FUEGO para el tema claro (sol) */
+      @keyframes meteor-trail {
         0% {
-          box-shadow: 0 0 5px rgba(var(--color-text-rgb), 0), 
-                      0 0 10px rgba(var(--color-text-rgb), 0), 
-                      0 0 15px rgba(var(--color-text-rgb), 0);
+          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
         }
         50% {
-          box-shadow: 2px -2px 5px rgba(var(--color-text-rgb), 0.2), 
-                      4px -4px 10px rgba(var(--color-text-rgb), 0.1), 
-                      6px -6px 15px rgba(var(--color-text-rgb), 0.05);
+          box-shadow: 2px -2px 8px rgba(255, 150, 0, 0.8), 
+                      3px -3px 12px rgba(255, 50, 0, 0.6), 
+                      4px -4px 16px rgba(255, 200, 0, 0.5);
         }
-        100% { box-shadow: 0 0 0 rgba(var(--color-text-rgb), 0); }
+        100% {
+          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
+        }
       }
+
+      /* Animación de estela de HIELO para el tema oscuro (luna) */
+      @keyframes ice-trail {
+        0% {
+          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
+        }
+        50% {
+          box-shadow: 2px -2px 8px rgba(173, 216, 230, 0.9), /* lightblue */
+                      3px -3px 12px rgba(0, 255, 255, 0.7),   /* cyan */
+                      4px -4px 16px rgba(224, 255, 255, 0.6); /* lightcyan */
+        }
+        100% {
+          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
+        }
+      }
+
+      /* --- Estilos del Tutorial --- */
+      .tutorial-active .theme-satellite-button { display: none; }
+      /* Pausar órbita durante el tutorial */
+      .tutorial-active #theme-orbit-wrapper { animation: none !important; }
+
+      @keyframes tutorial-reveal-anim {
+        from { transform: scale(0) rotate(-180deg); opacity: 0; }
+        to { transform: scale(1) rotate(0deg); opacity: 1; }
+      }
+      .theme-satellite-button.tutorial-reveal { animation: tutorial-reveal-anim 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+      #theme-tutorial-tooltip {
+        position: absolute;
+        bottom: calc(50% + 30px); /* Posicionado encima del botón central */
+        left: 50%;
+        transform: translateX(-50%) scale(0.9);
+        background-color: var(--color-surface);
+        color: var(--color-text);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        border: 1px solid rgba(var(--color-text-rgb), 0.1);
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), bottom 0.3s ease;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #theme-tutorial-tooltip[style*="opacity: 1"] {
+        transform: translateX(-50%) scale(1);
+      }
+
+      .tutorial-active ~ .theme-is-light .theme-satellite-button,
+      .tutorial-active ~ .theme-is-dark .theme-satellite-button { animation: none; }
+      body:not(.tutorial-active) .theme-is-light .theme-satellite-button { animation: meteor-trail 2s linear infinite; }
+      body:not(.tutorial-active) .theme-is-dark .theme-satellite-button { animation: ice-trail 2s linear infinite; }
     `;
   }
 
@@ -860,6 +1043,11 @@ class AutoTheme {
     // Escucha los cambios en la preferencia del sistema operativo.
     let debounceTimer;
     systemPreference.addEventListener('change', (e) => {
+      // Si el tutorial está activo, no cambies el tema automáticamente.
+      if (this.#tutorialActive) {
+        return;
+      }
+
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         // Solo cambia el tema si el usuario no ha establecido una preferencia manual.
@@ -872,7 +1060,7 @@ class AutoTheme {
     // Atajo de teclado para restaurar el botón si está oculto.
     window.addEventListener('keydown', (e) => {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
+      debounceTimer = setTimeout(() => { // Usamos un pequeño timeout para evitar conflictos con el tutorial
         if (this.#isTriggerPermanentlyHidden && e.key.toLowerCase() === this.#shortcutKey) {
           this.#togglePermanentTriggerVisibility(false);
         }
