@@ -488,17 +488,24 @@ class AutoTheme {
 
 
   #createSatelliteButtons(orbitContainer) {
+    // --- ¡AQUÍ PUEDES CAMBIAR LA DISTANCIA DE LA ÓRBITA! ---
+    // Este valor (en píxeles) define qué tan lejos orbitan los botones del centro.
+    const orbitRadius = 38; // Valor por defecto: 38px
+    // ---------------------------------------------------------
+
+    // El tamaño del contenedor se calcula automáticamente para que quepa la órbita.
+    const containerSize = (orbitRadius + 25) * 2; // 25 es la mitad del botón central + un margen.
+    this.#triggerContainer.style.width = `${containerSize}px`;
+    this.#triggerContainer.style.height = `${containerSize}px`;
+
     let gradientModalButton;
     // Botón para abrir el modal de gradientes (?)
 
     // 3. Crear el contenedor para los satélites en órbita
     const orbitWrapper = document.createElement('div');
     orbitWrapper.id = 'theme-orbit-wrapper';
-    Object.assign(orbitWrapper.style, {
+    Object.assign(orbitWrapper.style, { // El wrapper ahora coincide con el tamaño del contenedor padre.
       position: 'absolute',
-      // Hacemos el wrapper más grande que el botón para que la órbita no se corte
-      width: '120px',
-      height: '120px', // El tamaño ya está definido en el contenedor padre
       animation: 'orbit 10s linear infinite',
       pointerEvents: 'none', // El wrapper no interfiere con los clics.
       zIndex: '1' // Detrás del botón principal
@@ -519,9 +526,9 @@ class AutoTheme {
         border: '1px solid rgba(var(--color-text-rgb), 0.1)',
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
         cursor: 'pointer',
-        position: 'absolute',
-        top: 'calc(50% - 12px)', // Posicionado en el ecuador derecho de la órbita
-        left: 'calc(100% - 12px)', // A 38px del centro (50% del wrapper de 120px = 60px - 12px = 48px. Ajustemos)
+        position: 'absolute', // Posicionado en el ecuador derecho de la órbita
+        top: `calc(50% - 12px)`, // 12px es la mitad del tamaño del botón satélite
+        left: `calc(50% + ${orbitRadius}px - 12px)`,
         fontSize: '16px', lineHeight: '22px', padding: '0',
         display: this.#tutorialActive ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
@@ -552,8 +559,8 @@ class AutoTheme {
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
         cursor: 'pointer',
         position: 'absolute',
-        top: '0px', // Posicionado en el polo norte de la órbita
-        left: 'calc(50% - 12px)',
+        top: `calc(50% - ${orbitRadius}px - 12px)`, // Posicionado en el polo norte de la órbita
+        left: `calc(50% - 12px)`,
         fontSize: '16px',
         lineHeight: '22px',
         padding: '0',
@@ -579,10 +586,6 @@ class AutoTheme {
       if (!btn) return;
       btn.classList.add('theme-satellite-button');
     });
-
-    // Ajustar posiciones para una órbita más limpia
-    if (gradientModalButton) gradientModalButton.style.left = 'calc(100% - 12px - 22px)'; // 120/2 - 12 = 48px del centro
-    if (closePermanentlyButton) closePermanentlyButton.style.top = '22px';
 
     return orbitWrapper;
   }
