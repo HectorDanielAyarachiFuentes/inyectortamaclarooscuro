@@ -126,7 +126,7 @@ class AutoTheme {
    * @returns {{h: number, s: number, l: number}} - El color en formato HSL.
    */
   #hexToHsl(hex) {
-    if (!hex) {
+    if (hex) {
       // Normaliza el formato HEX corto (ej. #F0C) a formato largo (ej. #FF00CC).
       const fullHex = hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex;
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página Dinámica</title>
+    
+    <style>
+        /* Estilos generales */
+        body {
+            font-family: sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        /* --- Estilos para las Pestañas (Tabs) --- */
+        .tab-container {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab-container button {
+            background-color: inherit;
+            color: #333;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            border-radius: 0;
+        }
+        .tab-container button:hover {
+            background-color: #ddd;
+        }
+        .tab-container button.active {
+            background-color: #ccc;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none; /* Oculto por defecto */
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+        }
+        .tab-content.active {
+            display: block; /* Muestra el contenido activo */
+        }
+
+        /* --- Estilos para la Ventana Modal --- */
+        .modal {
+            display: none; /* Oculto por defecto */
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Demostración de Componentes Dinámicos</h1>
+        <hr>
+
+        <h2>Pestañas</h2>
+        <div class="tab-container">
+            <button class="tab-link active" data-tab="tab1">Información</button>
+            <button class="tab-link" data-tab="tab2">Especificaciones</button>
+            <button class="tab-link" data-tab="tab3">Contacto</button>
+        </div>
+
+        <div id="tab1" class="tab-content active">
+            <h3>Información General</h3>
+            <p>Este es el contenido de la primera pestaña. Aquí puedes poner cualquier información que desees.</p>
+        </div>
+        <div id="tab2" class="tab-content">
+            <h3>Especificaciones Técnicas</h3>
+            <p>Contenido detallado sobre las especificaciones del producto o servicio.</p>
+        </div>
+        <div id="tab3" class="tab-content">
+            <h3>Formulario de Contacto</h3>
+            <p>Aquí podría ir un formulario para que los usuarios te contacten.</p>
+        </div>
+        
+        <hr>
+
+        <h2>Ventana Modal</h2>
+        <p>Haz clic en el botón para abrir una ventana emergente (modal).</p>
+        <button id="openModalBtn">Abrir Modal</button>
+
+        <div id="myModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <h2>Ventana Modal</h2>
+                <p>Este es un mensaje importante que aparece en una ventana modal. Puedes cerrarla haciendo clic en la 'X' o fuera de este cuadro.</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <h2>Texto Dinámico (Span)</h2>
+        <p>El dato actual es: <span id="dynamicText" style="font-weight: bold; color: #d9534f;">dato inicial</span></p>
+        <button id="updateTextBtn">Actualizar Dato</button>
+    </div>
+
+
+    <script>
+        // Espera a que todo el HTML esté cargado para ejecutar el script
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- Lógica para las PESTAÑAS ---
+            const tabLinks = document.querySelectorAll('.tab-link');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabLinks.forEach(link => {
+                link.addEventListener('click', () => {
+                    const tabId = link.dataset.tab;
+
+                    // Oculta todos los contenidos y quita la clase 'active' de los botones
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    tabLinks.forEach(l => l.classList.remove('active'));
+
+                    // Muestra el contenido de la pestaña seleccionada y activa su botón
+                    document.getElementById(tabId).classList.add('active');
+                    link.classList.add('active');
+                });
+            });
+
+
+            // --- Lógica para la VENTANA MODAL ---
+            const modal = document.getElementById('myModal');
+            const openModalBtn = document.getElementById('openModalBtn');
+            const closeModalBtn = document.querySelector('.close-button');
+
+            // Abrir el modal
+            openModalBtn.addEventListener('click', () => {
+                modal.style.display = 'block';
+            });
+
+            // Cerrar el modal con el botón 'X'
+            closeModalBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+
+            // Cerrar el modal al hacer clic fuera del contenido
+            window.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+
+
+            // --- Lógica para el SPAN DINÁMICO ---
+            const updateTextBtn = document.getElementById('updateTextBtn');
+            const dynamicTextSpan = document.getElementById('dynamicText');
+            let clickCount = 0;
+
+            updateTextBtn.addEventListener('click', () => {
+                clickCount++;
+                dynamicTextSpan.textContent = `Actualizado ${clickCount} veces`;
+            });
+
+        });
+    </script>
+<script type="module" src="theme-generator.js"></script>
+</body>
+</html>
