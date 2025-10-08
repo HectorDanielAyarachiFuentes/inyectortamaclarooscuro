@@ -489,12 +489,13 @@ class AutoTheme {
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
         cursor: 'pointer', position: 'absolute',
         top: 'calc(50% - 12px)', // Posición inicial en el ecuador derecho de la órbita
-        left: 'calc(100% + 10px)',
+        left: 'calc(100% + 18px)', // Aumentado el margen
         fontSize: '16px', lineHeight: '22px', padding: '0',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
         transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
-        pointerEvents: 'auto'
+        pointerEvents: 'auto',
+        animation: 'comet-trail 1.5s linear infinite' // Añadida animación de estela
       });
       gradientModalButton.addEventListener('click', () => {
         this.#gradientSelectorInstance.toggleModal(true);
@@ -519,7 +520,7 @@ class AutoTheme {
         backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
         cursor: 'pointer',
         position: 'absolute', // La animación 'orbit' moverá el wrapper, y este botón con él.
-        top: '-10px', // Posición inicial para la órbita
+        top: '-22px', // Aleja aún más el botón 'X' para mayor margen
         left: 'calc(50% - 12px)',
         fontSize: '16px',
         lineHeight: '22px',
@@ -529,7 +530,8 @@ class AutoTheme {
         justifyContent: 'center',
         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
         transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
-        pointerEvents: 'auto' // Este botón sí captura eventos.
+        pointerEvents: 'auto', // Este botón sí captura eventos.
+        animation: 'comet-trail 1.5s linear infinite' // Añadida animación de estela
     });
     closePermanentlyButton.addEventListener('click', () => this.#togglePermanentTriggerVisibility(true));
     window.addEventListener('themechange', () => {
@@ -782,6 +784,20 @@ class AutoTheme {
       @keyframes reconstruct-satellite {
         from { transform: scale(0); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
+      }
+      /* Animación de estela para los satélites */
+      @keyframes comet-trail {
+        0% {
+          box-shadow: 0 0 5px rgba(var(--color-text-rgb), 0), 
+                      0 0 10px rgba(var(--color-text-rgb), 0), 
+                      0 0 15px rgba(var(--color-text-rgb), 0);
+        }
+        50% {
+          box-shadow: 2px -2px 5px rgba(var(--color-text-rgb), 0.2), 
+                      4px -4px 10px rgba(var(--color-text-rgb), 0.1), 
+                      6px -6px 15px rgba(var(--color-text-rgb), 0.05);
+        }
+        100% { box-shadow: 0 0 0 rgba(var(--color-text-rgb), 0); }
       }
     `;
   }
