@@ -79,15 +79,19 @@ class AutoTheme {
   #isPageInitiallyDark = false; // Detecta si el tema original de la página era oscuro.
   #colorCache = new Map(); // Caché para optimizar el cálculo de si un color es oscuro o no.
   #toggleButton; // Referencia al elemento del botón en el DOM.
+  #triggerContainer; // Contenedor para el botón de tema y su 'X' de cierre.
+  #isTriggerPermanentlyHidden = false;
+  #shortcutKey = 't'; // Tecla para restaurar el botón de tema.
   #modalObserver; // Observador de mutaciones para detectar modales.
 
+  #gradientSelectorInstance; // Almacenará la instancia de GradientSelector
   /**
    * Inicializa la clase.
    * @param {object} baseColors - Objeto con los colores base. Ej: { surface: '#ffffff', text: '#000000' }.
    * @param {object} buttonOptions - Opciones para el botón y las exclusiones.
    */
   constructor(baseColors, buttonOptions = {}) {
-    if (typeof buttonOptions !== 'object' || buttonOptions === null) {
+    if (typeof buttonOptions !== 'object' || buttonOptions === null) { // eslint-disable-line
       console.error('AutoTheme Error: buttonOptions must be an object. Using default options.');
       buttonOptions = {};
     }
@@ -101,6 +105,9 @@ class AutoTheme {
       transitionTimingFunction: 'ease',
       ...buttonOptions
     };
+    this.#shortcutKey = this.#buttonOptions.shortcutKey || 't';
+    this.#gradientSelectorInstance = this.#buttonOptions.gradientSelector;
+    this.#isTriggerPermanentlyHidden = localStorage.getItem('theme-button-hidden') === 'true';
 
     // Inicia todo el proceso.
     this.#init();
@@ -170,10 +177,21 @@ class AutoTheme {
     for (const [name, hex] of Object.entries(this.#baseColors)) {
       const hsl = this.#hexToHsl(hex);
       const invertedL = 100 - hsl.l; // Invierte la luminosidad (ej. 90% -> 10%).
-      let adjustedS = hsl.s;
-      if (invertedL > 50) adjustedS = Math.max(30, hsl.s * 0.8);
-      else adjustedS = Math.min(90, hsl.s * 1.2);
-      darkColors[name] = `hsl(${hsl.h}, ${adjustedS}%, ${invertedL}%)`;
+      
+      // Lógica "inteligente" para ajustar la saturación:
+      // - Si el color original era muy claro (luminosidad > 80), se reduce más la saturación en modo oscuro para evitar colores neón.
+      // - Si el color original era oscuro, se aumenta ligeramente la saturación para que no se pierda en el fondo.
+      let adjustedS;
+      if (hsl.l > 80) {
+        // Para colores muy claros, desaturamos para que no sean tan intensos en fondo oscuro.
+        adjustedS = Math.max(10, hsl.s * 0.6);
+      } else if (hsl.l < 20) {
+        // Para colores ya oscuros, mantenemos o aumentamos la saturación para que resalten.
+        adjustedS = Math.min(100, hsl.s * 1.1);
+      } else {
+        adjustedS = hsl.s;
+      }
+      darkColors[name] = `hsl(${hsl.h}, ${Math.round(adjustedS)}%, ${invertedL}%)`;
     }
     return darkColors;
   }
@@ -303,7 +321,7 @@ class AutoTheme {
 
       // Usa la API de View Transitions si está disponible para una transición suave.
       // Si no, aplica los cambios directamente.
-      if (document.startViewTransition && event) {
+      if (document.startViewTransition && manualToggle && event instanceof MouseEvent) {
         const x = event.clientX;
         const y = event.clientY;
         const endRadius = Math.hypot(
@@ -317,11 +335,15 @@ class AutoTheme {
 
         transition.ready.then(() => {
           document.documentElement.animate(
-            { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] },
-            { duration: 500, easing: 'ease-in-out', pseudoElement: '::view-transition-new(root)' }
+            { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] }, {
+              duration: 500,
+              easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+              pseudoElement: '::view-transition-new(root)'
+            }
           );
         });
       } else {
+        document.documentElement.style.transition = 'none'; // Previene transiciones CSS si no se usa ViewTransition
         this.#applyThemeChanges(manualToggle);
       }
     } catch (error) {
@@ -359,6 +381,9 @@ class AutoTheme {
       detail: { isDark: this.#isDark, manualToggle }
     }));
 
+    // Vuelve a aplicar la transición después de un ciclo de renderizado.
+    requestAnimationFrame(() => document.documentElement.style.transition = '');
+
     // Actualiza el icono y los colores del botón.
     this.#updateToggleButton();
   }
@@ -380,44 +405,162 @@ class AutoTheme {
   }
 
   #createToggleButton() {
-    const button = document.createElement('button');
-    button.id = 'theme-toggle-button';
-    button.setAttribute('aria-label', 'Cambiar entre tema claro y oscuro');
+    // 1. Crear el contenedor principal que será arrastrable
+    this.#triggerContainer = document.createElement('div');
+    this.#triggerContainer.id = 'theme-toggle-container';
+    this.#triggerContainer.setAttribute('aria-label', 'Control de tema');
 
-    // Intenta recuperar la posición guardada del botón desde localStorage.
     const initialPositionStyles = this.#getSavedButtonPosition() ?? {
       bottom: '20px',
       right: '20px'
     };
 
-    // Aplica los estilos base al botón.
-    Object.assign(button.style, {
+    Object.assign(this.#triggerContainer.style, {
       position: 'fixed',
       ...initialPositionStyles,
+      zIndex: '9999',
+      display: this.#isTriggerPermanentlyHidden ? 'none' : 'flex',
+      alignItems: 'flex-start',
+      transition: 'transform 0.3s ease, opacity 0.3s ease',
+      pointerEvents: 'none' // El contenedor no captura eventos, solo los botones.
+    });
+
+    // 2. Crear el botón principal de tema
+    this.#toggleButton = document.createElement('button');
+    this.#toggleButton.id = 'theme-toggle-button';
+    this.#toggleButton.setAttribute('aria-label', 'Cambiar entre tema claro y oscuro');
+
+    Object.assign(this.#toggleButton.style, {
+      position: 'relative', // Para establecer un contexto de apilamiento.
       width: '50px',
       height: '50px',
       borderRadius: '50%',
-      border: '1px solid rgba(0, 0, 0, 0.1)',
+      border: '1px solid rgba(var(--color-text-rgb), 0.1)',
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: '24px',
       boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
-      zIndex: '9999',
-      transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease'
+      transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease',
+      pointerEvents: 'auto', // El botón sí captura eventos.
+      zIndex: '2' // Asegura que el botón principal esté por encima de la órbita.
     });
 
-    // Efectos visuales y evento de click.
-    button.addEventListener('mouseover', () => button.style.transform = 'scale(1.1)');
-    button.addEventListener('mouseout', () => button.style.transform = 'scale(1)');
-    button.addEventListener('click', (e) => this.setTheme(!this.#isDark, true, e));
-    
-    // Hace que el botón se pueda arrastrar por la pantalla.
-    this.#makeDraggable(button);
+    this.#toggleButton.addEventListener('mouseover', () => this.#toggleButton.style.transform = 'scale(1.1)');
+    this.#toggleButton.addEventListener('mouseout', () => this.#toggleButton.style.transform = 'scale(1)');
+    this.#toggleButton.addEventListener('click', (e) => this.setTheme(!this.#isDark, true, e));
 
-    document.body.appendChild(button);
-    this.#toggleButton = button;
+    // 3. Crear el contenedor para los satélites en órbita
+    const orbitWrapper = document.createElement('div');
+    Object.assign(orbitWrapper.style, {
+        position: 'absolute',
+        width: '100%',
+        height: '100%',
+        animation: 'orbit 15s linear infinite',
+        pointerEvents: 'none', // El wrapper no interfiere con los clics.
+        zIndex: '3' // Se posiciona por encima del botón principal para que la 'X' sea visible.
+    });
+    orbitWrapper.setAttribute('data-theme-exclude', 'animation-wrapper'); // Excluir para que la animación no se invierta.
+    // Pausar la animación al pasar el ratón por el contenedor principal
+    this.#triggerContainer.addEventListener('mouseenter', () => orbitWrapper.style.animationPlayState = 'paused');
+    this.#triggerContainer.addEventListener('mouseleave', () => orbitWrapper.style.animationPlayState = 'running');
+
+    // 4. Crear los botones satélite (cierre y modal de gradientes)
+    this.#createSatelliteButtons(orbitWrapper);
+
+    // 5. Añadir todo al DOM y hacer arrastrable el contenedor
+    this.#triggerContainer.appendChild(this.#toggleButton);
+    this.#triggerContainer.appendChild(orbitWrapper);
+    document.body.appendChild(this.#triggerContainer);
+    this.#makeDraggable(this.#triggerContainer);
+  }
+
+  #createSatelliteButtons(orbitContainer) {
+    // Botón para abrir el modal de gradientes (?)
+    if (this.#gradientSelectorInstance) {
+      const gradientModalButton = document.createElement('button');
+      gradientModalButton.innerHTML = '?';
+      gradientModalButton.setAttribute('aria-label', 'Abrir selector de fondos');
+      gradientModalButton.title = 'Abrir selector de fondos (Sorpresas)';
+      Object.assign(gradientModalButton.style, {
+        width: '24px', height: '24px', borderRadius: '50%',
+        border: '1px solid rgba(var(--color-text-rgb), 0.2)',
+        backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
+        cursor: 'pointer', position: 'absolute',
+        top: 'calc(50% - 12px)', // Posición inicial en el ecuador derecho de la órbita
+        left: 'calc(100% + 10px)',
+        fontSize: '16px', lineHeight: '22px', padding: '0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+        transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
+        pointerEvents: 'auto'
+      });
+      gradientModalButton.addEventListener('click', () => {
+        this.#gradientSelectorInstance.toggleModal(true);
+      });
+      window.addEventListener('themechange', () => {
+        gradientModalButton.style.backgroundColor = 'var(--color-surface)';
+        gradientModalButton.style.color = 'var(--color-text)';
+      });
+      orbitContainer.appendChild(gradientModalButton);
+    }
+
+    // Botón de cierre permanente (X)
+    const closePermanentlyButton = document.createElement('button');
+    closePermanentlyButton.innerHTML = '&times;';
+    closePermanentlyButton.setAttribute('aria-label', `Ocultar botón de tema (restaurar con la tecla '${this.#shortcutKey.toUpperCase()}')`);
+    closePermanentlyButton.title = `Ocultar (puedes restaurarlo con la tecla '${this.#shortcutKey.toUpperCase()}')`;
+
+    Object.assign(closePermanentlyButton.style, {
+        width: '24px',
+        height: '24px', borderRadius: '50%',
+        border: '1px solid rgba(var(--color-text-rgb), 0.2)',
+        backgroundColor: 'var(--color-surface)', color: 'var(--color-text)',
+        cursor: 'pointer',
+        position: 'absolute', // La animación 'orbit' moverá el wrapper, y este botón con él.
+        top: '-10px', // Posición inicial para la órbita
+        left: 'calc(50% - 12px)',
+        fontSize: '16px',
+        lineHeight: '22px',
+        padding: '0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+        transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
+        pointerEvents: 'auto' // Este botón sí captura eventos.
+    });
+    closePermanentlyButton.addEventListener('click', () => this.#togglePermanentTriggerVisibility(true));
+    window.addEventListener('themechange', () => {
+        closePermanentlyButton.style.backgroundColor = 'var(--color-surface)';
+        closePermanentlyButton.style.color = 'var(--color-text)';
+        closePermanentlyButton.style.borderColor = 'rgba(var(--color-text-rgb), 0.2)';
+    });
+
+    orbitContainer.appendChild(closePermanentlyButton);
+  }
+
+  #togglePermanentTriggerVisibility(hide) {
+      this.#isTriggerPermanentlyHidden = hide;
+      if (hide) {
+          localStorage.setItem('theme-button-hidden', 'true');
+          this.#triggerContainer.style.animation = 'destroy-button 0.4s ease-out forwards';
+          this.#triggerContainer.addEventListener('animationend', () => this.#triggerContainer.style.display = 'none', { once: true });
+      } else {
+          localStorage.removeItem('theme-button-hidden');
+          this.#triggerContainer.style.display = 'flex';
+          this.#triggerContainer.style.animation = 'reconstruct-button 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+          // Animación de entrada para el botón 'X'
+          const closeButton = this.#triggerContainer.querySelector('button:not(#theme-toggle-button)');
+          if (closeButton) closeButton.style.animation = 'reconstruct-satellite 0.5s ease-out 0.2s forwards';
+
+          this.#triggerContainer.addEventListener('animationend', () => this.#triggerContainer.style.animation = '', { once: true });
+          
+          // ¡El toque de Terminator!
+          this.#toggleButton.innerHTML = `<span style="font-size: 12px; font-weight: bold; text-align: center; line-height: 1.2;">I'll be<br>back</span>`;
+          setTimeout(() => this.#updateToggleButton(), 1500);
+      }
   }
 
   /**
@@ -486,6 +629,7 @@ class AutoTheme {
     this.#toggleButton.innerHTML = this.#isDark ? MOON_ICON : SUN_ICON;
     // Usa las variables CSS para que el botón también se adapte al tema.
     this.#toggleButton.style.backgroundColor = 'var(--color-surface)';
+    this.#toggleButton.style.borderColor = 'rgba(var(--color-text-rgb), 0.1)';
     this.#toggleButton.style.color = 'var(--color-text)';
   }
 
@@ -517,6 +661,13 @@ class AutoTheme {
         --color-surface: ${this.#baseColors.surface ?? '#ffffff'};
         --color-text: ${this.#baseColors.text ?? '#2c3e50'};
       }
+      
+      /* Versiones RGB para usar con opacidad (ej. rgba(var(--color-text-rgb), 0.5)) */
+      :root {
+        --color-surface-rgb: ${this.#hexToRgb(this.#baseColors.surface)};
+        --color-text-rgb: ${this.#hexToRgb(this.#baseColors.text)};
+        --color-accent: #007bff; /* Color de acento por defecto */
+      }
 
       /* Cuando el tema está invertido, redefine las mismas variables con los colores oscuros. */
       [data-theme="inverted"] {
@@ -524,6 +675,9 @@ class AutoTheme {
         --color-text: ${darkColors.text ?? '#ffffff'};
       }
 
+      [data-theme="inverted"] {
+        --color-accent: #00aaff; /* Color de acento para tema oscuro */
+      }
       /* Transición suave para el filtro de inversión. */
       html {
         transition: filter ${transitionDuration} ${transitionTimingFunction};
@@ -539,26 +693,63 @@ class AutoTheme {
     `;
   }
 
+  /**
+   * Convierte un color HEX a una cadena de valores R, G, B.
+   * @param {string} hex - El color en formato #RRGGBB.
+   * @returns {string} - "R, G, B" (ej. "255, 255, 255").
+   */
+  #hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+                  : '0, 0, 0';
+  }
+
   #generateExclusionStyles() {
-    const baseExclusions = ['img', 'video', 'iframe', '#theme-toggle-button', '[data-theme-exclude]', '[style*="background-image"]'];
+    // Se separan las exclusiones para un tratamiento diferenciado.
+    const baseExclusions = ['iframe', '#theme-toggle-button', '[data-theme-exclude]', '[style*="background-image"]'];
     const userExclusions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'string');
     const allExclusionSelectors = [...new Set([...baseExclusions, ...userExclusions])];
-    const exclusionSelector = allExclusionSelectors.map(sel => `[data-theme="inverted"] ${sel}`).join(',\n');
+    const fullInvertSelector = allExclusionSelectors.map(sel => `[data-theme="inverted"] ${sel}`).join(',\n');
 
     // Permite exclusiones mediante una función de callback para lógica más compleja.
-    const exclusionFunctions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'function');
-    if (exclusionFunctions.length > 0) {
-      document.querySelectorAll('*').forEach(el => {
-        if (exclusionFunctions.some(fn => fn(el))) {
-          el.setAttribute('data-theme-exclude', '');
-        }
-      });
-    }
+    this.#applyFunctionalExclusions();
 
     return `
       /* Para los elementos excluidos, se aplica un filtro de inversión inverso para anular el efecto. */
-      ${exclusionSelector} { filter: invert(1) hue-rotate(180deg); }
+      ${fullInvertSelector} { filter: invert(1) hue-rotate(180deg); }
+
+      /* Tratamiento "inteligente" para imágenes y videos: se reduce su brillo en lugar de excluirlos. */
+      [data-theme="inverted"] img, [data-theme="inverted"] video { filter: brightness(0.8) contrast(0.95); }
     `;
+  }
+
+  /**
+   * Aplica exclusiones definidas por funciones de callback del usuario.
+   * También añade la lógica "inteligente" para detectar iconos SVG.
+   */
+  #applyFunctionalExclusions() {
+    const exclusionFunctions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'function');
+    
+    document.querySelectorAll('*').forEach(el => {
+      // Exclusiones personalizadas por el usuario
+      if (exclusionFunctions.length > 0 && exclusionFunctions.some(fn => fn(el))) {
+        el.setAttribute('data-theme-exclude', '');
+      }
+
+      // Detección "inteligente" de iconos SVG
+      if (el.tagName.toLowerCase() === 'svg' && !el.hasAttribute('data-theme-exclude')) {
+        // Un icono suele tener un solo <path> o un número bajo de ellos, y no define colores complejos.
+        const pathCount = el.querySelectorAll('path').length;
+        const hasComplexFills = el.querySelector('[fill*="url("], [fill*="gradient"]');
+        
+        if (pathCount > 0 && pathCount < 5 && !hasComplexFills) {
+          // Es probable que sea un icono. Lo tratamos como texto.
+          // Al añadirle este atributo, el filtro principal no lo afectará, pero nuestras variables CSS sí.
+          el.style.color = 'var(--color-text)';
+          el.setAttribute('data-theme-exclude', 'svg-icon');
+        }
+      }
+    });
   }
 
   #generateAnimationStyles() {
@@ -572,6 +763,26 @@ class AutoTheme {
 
       /* Aplica la animación al SVG dentro del botón cuando se está cambiando de tema. */
       #theme-toggle-button.is-switching svg { animation: rotate-icon 0.4s ${transitionTimingFunction}; }
+
+      /* Animaciones para el botón de "Sorpresas" */
+      @keyframes destroy-button {
+        0% { transform: scale(1) rotate(0deg); opacity: 1; }
+        100% { transform: scale(0) rotate(180deg); opacity: 0; }
+      }
+      @keyframes reconstruct-button {
+        0% { transform: scale(0) rotate(180deg); opacity: 0; }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+      }
+      /* Animación de órbita para el botón 'X' */
+      @keyframes orbit {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      /* Animación de reconstrucción para el satélite 'X' */
+      @keyframes reconstruct-satellite {
+        from { transform: scale(0); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
     `;
   }
 
@@ -616,6 +827,7 @@ class AutoTheme {
     this.#injectBaseStyles();
     this.#injectLiveRegion();
     this.#createToggleButton();
+    this.#applyFunctionalExclusions(); // Aplicar exclusiones funcionales e inteligentes al inicio
     this.#initializeModalObserver();
 
     // Determina el estado inicial del tema de la página.
@@ -641,6 +853,16 @@ class AutoTheme {
       }, 100);
     });
 
+    // Atajo de teclado para restaurar el botón si está oculto.
+    window.addEventListener('keydown', (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (this.#isTriggerPermanentlyHidden && e.key.toLowerCase() === this.#shortcutKey) {
+          this.#togglePermanentTriggerVisibility(false);
+        }
+      }, 100);
+    });
+
     // Observa cambios en los atributos `style` o `class` del body para recalcular el tema si es necesario.
     const observer = new MutationObserver(() => this.recalculatePageTheme());
     observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
@@ -653,17 +875,805 @@ class AutoTheme {
  * @author HECTOR DANIEL AYARACHI FUENTES
  */
 const myBrandColors = {
-  surface: '#ffffff',
-  text: '#2c3e50'
+  surface: '#ffffff', // Color de fondo para el tema claro
+  text: '#2c3e50'     // Color de texto para el tema claro
 };
-
+/*
 // Crea una nueva instancia de la clase y le pasa los colores base.
 new AutoTheme(myBrandColors, {
   // Ejemplo de exclusiones:
-  // exclude: [
+  shortcutKey: 't', // Tecla para restaurar el botón de tema
+  // exclude: [ 
   //   '.logo', // Selector CSS
   //   (el) => el.id === 'map-container' // Función de callback
   // ]
 });
+*/
+
+/**
+ * Gestiona la selección y aplicación de fondos con degradado.
+ * Inyecta un botón flotante que abre un modal con vistas previas de los degradados.
+ * @author HECTOR DANIEL AYARACHI FUENTES (con asistencia de Gemini Code Assist)
+ */
+class GradientSelector {
+    #gradients;
+    #modal;
+    #backgroundElement;
+    #modalContent;
+    #removeButton;
+    #closeModalButton;
+    #shortcutKey = 'g'; // Tecla para abrir/cerrar el modal
+    #autoThemeInstance; // Referencia a la instancia de AutoTheme para coordinar la visibilidad del botón
+
+    constructor(gradientsData, options = {}) {
+        this.#gradients = gradientsData;
+        this.#shortcutKey = options.shortcutKey || 'g';
+        this.#autoThemeInstance = options.autoThemeInstance;
+        this.#init();
+    }
+
+    #init() {
+        this.#createBackgroundElement();
+        this.#createModal();
+        // this.#createTriggerButton(); // La creación del botón ahora la gestiona AutoTheme
+        this.#applySavedGradient();
+
+        // Cierra el modal si se hace clic fuera de él
+        this.#modal.addEventListener('click', (e) => {
+            if (e.target === this.#modal) {
+                this.toggleModal(false);
+            }
+        });
+
+        // Escucha los cambios de tema para actualizar los colores del modal
+        window.addEventListener('themechange', () => {
+            this.#updateModalTheme();
+        });
+
+        // Atajo de teclado para abrir/cerrar el modal
+        window.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            if (e.key.toLowerCase() === this.#shortcutKey) {
+                const isModalVisible = this.#modal.style.display === 'block';
+                this.toggleModal(!isModalVisible);
+            }
+        });
+    }
+
+    #createBackgroundElement() {
+        this.#backgroundElement = document.createElement('div');
+        this.#backgroundElement.id = 'gradient-background-layer';
+        Object.assign(this.#backgroundElement.style, {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            width: '100vw',
+            height: '100vh',
+            zIndex: '-1', // Se posiciona detrás de todo el contenido
+            transition: 'opacity 0.5s ease',
+            opacity: '0'
+        });
+        // Excluir del filtro de inversión de tema
+        this.#backgroundElement.setAttribute('data-theme-exclude', 'background');
+        document.body.appendChild(this.#backgroundElement);
+    }
+
+    #createModal() {
+        this.#modal = document.createElement('div');
+        this.#modal.id = 'gradient-selector-modal';
+        Object.assign(this.#modal.style, {
+            display: 'none',
+            position: 'fixed',
+            zIndex: '10000',
+            left: '0',
+            top: '0',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            overflowY: 'auto'
+        });
+
+        this.#modalContent = document.createElement('div');
+        Object.assign(this.#modalContent.style, {
+            margin: '5% auto',
+            padding: '20px',
+            width: '90%',
+            maxWidth: '800px',
+            borderRadius: '8px',
+            transition: 'background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease'
+        });
+
+        // Botón para cerrar el modal
+        this.#closeModalButton = document.createElement('span');
+        this.#closeModalButton.innerHTML = `&times;`; // Símbolo 'X'
+        this.#closeModalButton.title = `¡O pulsa la tecla '${this.#shortcutKey.toUpperCase()}' si te da pereza mover el ratón!`;
+        Object.assign(this.#closeModalButton.style, {
+            position: 'absolute',
+            top: '10px',
+            right: '20px',
+            fontSize: '28px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            lineHeight: '1',
+            transition: 'color 0.3s ease'
+        });
+        this.#closeModalButton.addEventListener('click', () => this.toggleModal(false)); // Corregido aquí también por consistencia
+
+        // Tooltip gracioso al pasar el ratón
+        this.#closeModalButton.addEventListener('mouseenter', () => this.#closeModalButton.style.transform = 'scale(1.2)');
+        this.#closeModalButton.addEventListener('mouseleave', () => this.#closeModalButton.style.transform = 'scale(1)');
+
+        const header = document.createElement('h2');
+        header.textContent = 'Elige tu fondo preferido';
+        Object.assign(header.style, {
+            textAlign: 'center',
+            marginTop: '0',
+            marginBottom: '24px'
+        });
+
+        const grid = document.createElement('div');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(100px, 1fr))';
+        grid.style.gap = '10px';
+        grid.style.marginTop = '20px';
+
+        this.#gradients.forEach(gradient => {
+            const swatch = document.createElement('div');
+            swatch.title = gradient.name;
+            Object.assign(swatch.style, {
+                height: '60px',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                background: gradient.gradient,
+                transition: 'transform 0.2s ease'
+            });
+            swatch.addEventListener('mouseover', () => swatch.style.transform = 'scale(1.05)');
+            swatch.addEventListener('mouseout', () => swatch.style.transform = 'scale(1)');
+            swatch.addEventListener('click', () => this.#applyGradient(gradient.gradient));
+            grid.appendChild(swatch);
+        });
+
+        this.#removeButton = document.createElement('button');
+        this.#removeButton.textContent = 'Quitar Fondo';
+        Object.assign(this.#removeButton.style, {
+            marginTop: '20px',
+            padding: '10px 15px',
+            cursor: 'pointer',
+            display: 'block',
+            margin: '20px auto 0',
+            border: 'none',
+            borderRadius: '5px',
+            fontSize: '16px',
+            transition: 'background-color 0.3s ease, color 0.3s ease'
+        });
+        this.#removeButton.addEventListener('click', () => this.#applyGradient(''));
+
+        this.#modalContent.appendChild(this.#closeModalButton);
+        this.#modalContent.appendChild(header);
+        this.#modalContent.appendChild(grid);
+        this.#modalContent.appendChild(this.#removeButton);
+        this.#modal.appendChild(this.#modalContent);
+        document.body.appendChild(this.#modal);
+
+        // Aplica los colores del tema inicial
+        this.#updateModalTheme();
+    }
+
+    #updateModalTheme() {
+        this.#modalContent.style.backgroundColor = 'var(--color-surface)';
+        this.#modalContent.style.color = 'var(--color-text)';
+        this.#modalContent.style.border = '1px solid rgba(var(--color-text-rgb), 0.2)';
+        this.#removeButton.style.backgroundColor = 'var(--color-accent, #007bff)';
+        this.#removeButton.style.color = 'var(--color-surface)';
+        this.#closeModalButton.style.color = 'rgba(var(--color-text-rgb), 0.5)';
+    }
+
+    toggleModal(show) {
+        const isVisible = this.#modal.style.display === 'block';
+        if (show === isVisible) return; // No hacer nada si ya está en el estado deseado
+
+        // Busca el contenedor del botón de tema para ocultarlo/mostrarlo
+        const triggerContainer = document.getElementById('theme-toggle-container');
+
+        if (show) {
+            // Animar la destrucción del contenedor del botón
+            if (triggerContainer) {
+                triggerContainer.style.animation = 'destroy-button 0.4s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards';
+                triggerContainer.addEventListener('animationend', () => {
+                    triggerContainer.style.display = 'none';
+                    triggerContainer.style.animation = ''; // Limpiar animación
+                }, { once: true });
+            }
+
+            // Mostrar el modal
+            this.#modal.style.display = 'block';
+        } else {
+            this.#modal.style.display = 'none';
+
+            // Reconstruir el botón si no está oculto permanentemente
+            const isPermanentlyHidden = localStorage.getItem('theme-button-hidden') === 'true';
+            if (triggerContainer && !isPermanentlyHidden) {
+                triggerContainer.style.display = 'flex';
+                triggerContainer.style.animation = 'reconstruct-button 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+            }
+        }
+    }
+
+    #applyGradient(gradient) {
+        localStorage.setItem('selected-gradient', gradient);
+        this.#backgroundElement.style.background = gradient;
+        this.#backgroundElement.style.opacity = gradient ? '1' : '0';
+        this.toggleModal(false);
+    }
+
+    #applySavedGradient() {
+        const savedGradient = localStorage.getItem('selected-gradient');
+        if (savedGradient) {
+            this.#backgroundElement.style.background = savedGradient;
+            this.#backgroundElement.style.opacity = '1';
+        }
+    }
+}
+
+
+
+
+
+
+
+// Colores por defecto para los degradados que no tienen una paleta personalizada.
+// Puedes ajustar estos colores para que se adapten a la mayoría de los degradados.
+export const DEFAULT_GRADIENT_COLORS = {
+  '--text-color': '#e0e0e0',
+  '--text-color-strong': '#ffffff',
+  '--panel-bg': '#1c1c1c',
+  '--accent-color': '#00aaff',
+  '--button-bg': 'rgba(255, 255, 255, 0.07)',
+  '--button-hover-bg': 'rgba(255, 255, 255, 0.12)'
+};
+
+// Lista de degradados.
+// He añadido `cssVariables` a algunos como ejemplo.
+const gradientsData = [
+    {
+        "id": "mango",
+        "name": "Mango",
+        "gradient": "linear-gradient(to right, #355c7d 0%, #6c5b7b 33%, #c06c84 100%)",
+        "cssVariables": {
+            '--text-color': '#f0e8f3',
+            '--text-color-strong': '#ffffff',
+            '--panel-bg': '#2a3b4f',
+            '--accent-color': '#c06c84'
+        }
+    },
+    {
+        "id": "windy",
+        "name": "Windy",
+        "gradient": "linear-gradient(to right, #bc4e9c 0%, #f80759 100%)"
+    },
+    {
+        "id": "royal-blue",
+        "name": "Royal Blue",
+        "gradient": "linear-gradient(to right, #40e0d0 0%, #ff8c00 33%, #ff0080 100%)"
+    },
+    {
+        "id": "royal-blue-petrol",
+        "name": "Royal Blue + Petrol",
+        "gradient": "linear-gradient(to right, #3e5151 0%, #decba4 100%)",
+        "cssVariables": {
+            '--text-color': '#2c3e50',
+            '--text-color-strong': '#1a2530',
+            '--panel-bg': '#f0f0f0',
+            '--accent-color': '#3e5151'
+        }
+    },
+    {
+        "id": "copper",
+        "name": "Copper",
+        "gradient": "linear-gradient(to right, #11998e 0%, #38ef7d 100%)"
+    },
+    {
+        "id": "petrol",
+        "name": "Petrol",
+        "gradient": "linear-gradient(to right, #108dc7 0%, #ef8e38 100%)"
+    },
+    {
+        "id": "sky",
+        "name": "Sky",
+        "gradient": "linear-gradient(to right, #fc5c7d 0%, #6a82fb 100%)"
+    },
+    {
+        "id": "sel",
+        "name": "Sel",
+        "gradient": "linear-gradient(to right, #fc466b 0%, #3f5efb 100%)"
+    },
+    {
+        "id": "skyline",
+        "name": "Skyline",
+        "gradient": "linear-gradient(to right, #c94b4b 0%, #4b134f 100%)"
+    },
+    {
+        "id": "dimigo",
+        "name": "DIMIGO",
+        "gradient": "linear-gradient(to right, #23074d 0%, #cc5333 100%)"
+    },
+    {
+        "id": "purple-love",
+        "name": "Purple Love",
+        "gradient": "linear-gradient(to right, #fffbd5 0%, #b20a2c 100%)"
+    },
+    {
+        "id": "sexy-blue",
+        "name": "Sexy Blue",
+        "gradient": "linear-gradient(to right, #0f0c29 0%, #302b63 33%, #24243e 100%)",
+        "cssVariables": {
+            '--text-color': '#c3c1d3',
+            '--text-color-strong': '#e8e7f0',
+            '--panel-bg': '#1a182c',
+            '--accent-color': '#8c88c3'
+        }
+    },
+    {
+        "id": "blooker20",
+        "name": "Blooker20",
+        "gradient": "linear-gradient(to right, #00b09b 0%, #96c93d 100%)"
+    },
+    {
+        "id": "sea-blue",
+        "name": "Sea Blue",
+        "gradient": "linear-gradient(to right, #d3cce3 0%, #e9e4f0 100%)"
+    },
+    {
+        "id": "nimvelo",
+        "name": "Nimvelo",
+        "gradient": "linear-gradient(to right, #3c3b3f 0%, #605c3c 100%)"
+    },
+    {
+        "id": "hazel",
+        "name": "Hazel",
+        "gradient": "linear-gradient(to right, #cac531 0%, #f3f9a7 100%)"
+    },
+    {
+        "id": "noon-to-dusk",
+        "name": "Noon to Dusk",
+        "gradient": "linear-gradient(to right, #800080 0%, #ffc0cb 100%)"
+    },
+    {
+        "id": "youtube",
+        "name": "YouTube",
+        "gradient": "linear-gradient(to right, #00f260 0%, #0575e6 100%)"
+    },
+    {
+        "id": "cool-brown",
+        "name": "Cool Brown",
+        "gradient": "linear-gradient(to right, #fc4a1a 0%, #f7b733 100%)"
+    },
+    {
+        "id": "harmonic-energy",
+        "name": "Harmonic Energy",
+        "gradient": "linear-gradient(to right, #e1eec3 0%, #f05053 100%)"
+    },
+    {
+        "id": "playing-with-reds",
+        "name": "Playing with Reds",
+        "gradient": "linear-gradient(to right, #74ebd5 0%, #acb6e5 100%)"
+    },
+    {
+        "id": "sunny-days",
+        "name": "Sunny Days",
+        "gradient": "linear-gradient(to right, #6d6027 0%, #d3cbb8 100%)"
+    },
+    {
+        "id": "green-beach",
+        "name": "Green Beach",
+        "gradient": "linear-gradient(to right, #03001e 0%, #7303c0 25%, #ec38bc 50%, #fdeff9 100%)"
+    },
+    {
+        "id": "intuitive-purple",
+        "name": "Intuitive Purple",
+        "gradient": "linear-gradient(to right, #667db6 0%, #0082c8 25%, #0082c8 50%, #667db6 100%)"
+    },
+    {
+        "id": "emerald-water",
+        "name": "Emerald Water",
+        "gradient": "linear-gradient(to right, #ada996 0%, #f2f2f2 25%, #dbdbdb 50%, #eaeaea 100%)"
+    },
+    {
+        "id": "lemon-twist",
+        "name": "Lemon Twist",
+        "gradient": "linear-gradient(to right, #e1eec3 0%, #f05053 100%)"
+    },
+    {
+        "id": "monte-carlo",
+        "name": "Monte Carlo",
+        "gradient": "linear-gradient(to right, #1a2a6c 0%, #b21f1f 33%, #fdbb2d 100%)"
+    },
+    {
+        "id": "horizon",
+        "name": "Horizon",
+        "gradient": "linear-gradient(to right, #22c1c3 0%, #fdbb2d 100%)"
+    },
+    {
+        "id": "rose-water",
+        "name": "Rose Water",
+        "gradient": "linear-gradient(to right, #ff9966 0%, #ff5e62 100%)"
+    },
+    {
+        "id": "frozen",
+        "name": "Frozen",
+        "gradient": "linear-gradient(to right, #7f00ff 0%, #e100ff 100%)"
+    },
+    {
+        "id": "mango-pulp",
+        "name": "Mango Pulp",
+        "gradient": "linear-gradient(to right, #c9d6ff 0%, #e2e2e2 100%)"
+    },
+    {
+        "id": "bloody-mary",
+        "name": "Bloody Mary",
+        "gradient": "linear-gradient(to right, #396afc 0%, #2948ff 100%)"
+    },
+    {
+        "id": "aubergine",
+        "name": "Aubergine",
+        "gradient": "linear-gradient(to right, #d9a7c7 0%, #fffcdc 100%)"
+    },
+    {
+        "id": "aqua-marine",
+        "name": "Aqua Marine",
+        "gradient": "linear-gradient(to right, #070000 0%, #4c0001 33%, #070000 100%)"
+    },
+    {
+        "id": "sunrise",
+        "name": "Sunrise",
+        "gradient": "linear-gradient(to right, #000000 0%, #e5008d 33%, #ff070b 100%)"
+    },
+    {
+        "id": "purple-paradise",
+        "name": "Purple Paradise",
+        "gradient": "linear-gradient(to right, #0cebeb 0%, #20e3b2 33%, #29ffc6 100%)"
+    },
+    {
+        "id": "stripe",
+        "name": "Stripe",
+        "gradient": "linear-gradient(to right, #06beb6 0%, #48b1bf 100%)"
+    },
+    {
+        "id": "sea-weed",
+        "name": "Sea Weed",
+        "gradient": "linear-gradient(to right, #642b73 0%, #c6426e 100%)"
+    },
+    {
+        "id": "pinky",
+        "name": "Pinky",
+        "gradient": "linear-gradient(to right, #1c92d2 0%, #f2fcfe 100%)"
+    },
+    {
+        "id": "cherry",
+        "name": "Cherry",
+        "gradient": "linear-gradient(to right, #000000 0%, #0f9b0f 100%)"
+    },
+    {
+        "id": "mojito",
+        "name": "Mojito",
+        "gradient": "linear-gradient(to right, #36d1dc 0%, #5b86e5 100%)"
+    },
+    {
+        "id": "juicy-orange",
+        "name": "Juicy Orange",
+        "gradient": "linear-gradient(to right, #cb356b 0%, #bd3f32 100%)"
+    },
+    {
+        "id": "mirage",
+        "name": "Mirage",
+        "gradient": "linear-gradient(to right, #3a1c71 0%, #d76d77 33%, #ffaf7b 100%)"
+    },
+    {
+        "id": "steel-gray",
+        "name": "Steel Gray",
+        "gradient": "linear-gradient(to right, #283c86 0%, #45a247 100%)"
+    },
+    {
+        "id": "kashmir",
+        "name": "Kashmir",
+        "gradient": "linear-gradient(to right, #ef3b36 0%, #ffffff 100%)"
+    },
+    {
+        "id": "electric-violet",
+        "name": "Electric Violet",
+        "gradient": "linear-gradient(to right, #c0392b 0%, #8e44ad 100%)"
+    },
+    {
+        "id": "venice-blue",
+        "name": "Venice Blue",
+        "gradient": "linear-gradient(to right, #159957 0%, #155799 100%)"
+    },
+    {
+        "id": "bora-bora",
+        "name": "Bora Bora",
+        "gradient": "linear-gradient(to right, #000046 0%, #1cb5e0 100%)"
+    },    
+    { "id": "moss", "name": "Moss", "gradient": "linear-gradient(to right, #007991 0%, #78ffd6 100%)" },
+    { "id": "shroom-haze", "name": "Shroom Haze", "gradient": "linear-gradient(to right, #56ccf2 0%, #2f80ed 100%)" },
+    { "id": "mystic", "name": "Mystic", "gradient": "linear-gradient(to right, #f2994a 0%, #f2c94c 100%)" },
+    { "id": "midnight-city", "name": "Midnight City", "gradient": "linear-gradient(to right, #eb5757 0%, #000000 100%)" },
+    { "id": "sea-blizz", "name": "Sea Blizz", "gradient": "linear-gradient(to right, #e44d26 0%, #f16529 100%)" },
+    { "id": "opa", "name": "Opa", "gradient": "linear-gradient(to right, #4ac29a 0%, #bdfff3 100%)" },
+    { "id": "titanium", "name": "Titanium", "gradient": "linear-gradient(to right, #b2fefa 0%, #0ed2f7 100%)" },
+    { "id": "mantle", "name": "Mantle", "gradient": "linear-gradient(to right, #30e8bf 0%, #ff8235 100%)" },
+    { "id": "dracula", "name": "Dracula", "gradient": "linear-gradient(to right, #d66d75 0%, #e29587 100%)" },
+    { "id": "peach", "name": "Peach", "gradient": "linear-gradient(to right, #20002c 0%, #cbb4d4 100%)" },
+    { "id": "moonrise", "name": "Moonrise", "gradient": "linear-gradient(to right, #c33764 0%, #1d2671 100%)" },
+    { "id": "clouds", "name": "Clouds", "gradient": "linear-gradient(to right, #f7971e 0%, #ffd200 100%)" },
+    { "id": "stellar", "name": "Stellar", "gradient": "linear-gradient(to right, #34e89e 0%, #0f3443 100%)" },
+    { "id": "bourbon", "name": "Bourbon", "gradient": "linear-gradient(to right, #6190e8 0%, #a7bfe8 100%)" },
+    { "id": "calm-darya", "name": "Calm Darya", "gradient": "linear-gradient(to right, #44a08d 0%, #093637 100%)" },
+    { "id": "influenza", "name": "Influenza", "gradient": "linear-gradient(to right, #200122 0%, #6f0000 100%)" },
+    { "id": "shrimpy", "name": "Shrimpy", "gradient": "linear-gradient(to right, #0575e6 0%, #021b79 100%)" },
+    { "id": "army", "name": "Army", "gradient": "linear-gradient(to right, #4568dc 0%, #b06ab3 100%)" },
+    { "id": "miaka", "name": "Miaka", "gradient": "linear-gradient(to right, #43c6ac 0%, #191654 100%)" },
+    { "id": "pinot-noir", "name": "Pinot Noir", "gradient": "linear-gradient(to right, #093028 0%, #237a57 100%)" },
+    { "id": "day-tripper", "name": "Day Tripper", "gradient": "linear-gradient(to right, #43c6ac 0%, #f8ffae 100%)" },
+    { "id": "namn", "name": "Namn", "gradient": "linear-gradient(to right, #ffafbd 0%, #ffc3a0 100%)" },
+    { "id": "blurry-beach", "name": "Blurry Beach", "gradient": "linear-gradient(to right, #f0f2f0 0%, #000c40 100%)" },
+    { "id": "vasily", "name": "Vasily", "gradient": "linear-gradient(to right, #e8cbc0 0%, #636fa4 100%)" },
+    { "id": "a-lost-memory", "name": "A Lost Memory", "gradient": "linear-gradient(to right, #dce35b 0%, #45b649 100%)" },
+    { "id": "petrichor", "name": "Petrichor", "gradient": "linear-gradient(to right, #c0c0aa 0%, #1cefff 100%)" },
+    { "id": "jonquil", "name": "Jonquil", "gradient": "linear-gradient(to right, #dbe6f6 0%, #c5796d 100%)" },
+    { "id": "sirius-tamed", "name": "Sirius Tamed", "gradient": "linear-gradient(to right, #3494e6 0%, #ec6ead 100%)" },
+    { "id": "kyoto", "name": "Kyoto", "gradient": "linear-gradient(to right, #67b26f 0%, #4ca2cd 100%)" },
+    { "id": "misty-meadow", "name": "Misty Meadow", "gradient": "linear-gradient(to right, #f3904f 0%, #3b4371 100%)" },
+    { "id": "aqualicious", "name": "Aqualicious", "gradient": "linear-gradient(to right, #ee0979 0%, #ff6a00 100%)" },
+    { "id": "moor", "name": "Moor", "gradient": "linear-gradient(to right, #a770ef 0%, #cf8bf3 33%, #fdb99b 100%)" },
+    { "id": "almost", "name": "Almost", "gradient": "linear-gradient(to right, #41295a 0%, #2f0743 100%)" },
+    { "id": "forever-lost", "name": "Forever Lost", "gradient": "linear-gradient(to right, #f4c4f3 0%, #fc67fa 100%)" },
+    { "id": "winter", "name": "Winter", "gradient": "linear-gradient(to right, #00c3ff 0%, #ffff1c 100%)" },
+    { "id": "autumn", "name": "Autumn", "gradient": "linear-gradient(to right, #ff7e5f 0%, #feb47b 100%)" },
+    { "id": "candy", "name": "Candy", "gradient": "linear-gradient(to right, #fffc00 0%, #ffffff 100%)" },
+    { "id": "reef", "name": "Reef", "gradient": "linear-gradient(to right, #ff00cc 0%, #333399 100%)" },
+    { "id": "the-strain", "name": "The Strain", "gradient": "linear-gradient(to right, #de6161 0%, #2657eb 100%)" },
+    { "id": "dirty-fog", "name": "Dirty Fog", "gradient": "linear-gradient(to right, #ef32d9 0%, #89fffd 100%)" },
+    { "id": "earthly", "name": "Earthly", "gradient": "linear-gradient(to right, #3a6186 0%, #89253e 100%)" },
+    { "id": "virgin", "name": "Virgin", "gradient": "linear-gradient(to right, #4ecdc4 0%, #556270 100%)" },
+    { "id": "ash", "name": "Ash", "gradient": "linear-gradient(to right, #a1ffce 0%, #faffd1 100%)" },
+    { "id": "shadow-night", "name": "Shadow Night", "gradient": "linear-gradient(to right, #be93c5 0%, #7bc6cc 100%)" },
+    { "id": "cherryblossoms", "name": "Cherryblossoms", "gradient": "linear-gradient(to right, #bdc3c7 0%, #2c3e50 100%)" },
+    { "id": "parklife", "name": "Parklife", "gradient": "linear-gradient(to right, #ffd89b 0%, #19547b 100%)" },
+    { "id": "dance-to-forget", "name": "Dance To Forget", "gradient": "linear-gradient(to right, #808080 0%, #3fada8 100%)" },
+    { "id": "starfall", "name": "Starfall", "gradient": "linear-gradient(to right, #fceabb 0%, #f8b500 100%)" },
+    { "id": "red-mist", "name": "Red Mist", "gradient": "linear-gradient(to right, #f85032 0%, #e73827 100%)" },
+    { "id": "teal-love", "name": "Teal Love", "gradient": "linear-gradient(to right, #f79d00 0%, #64f38c 100%)" },
+    { "id": "neon-life", "name": "Neon Life", "gradient": "linear-gradient(to right, #cb2d3e 0%, #ef473a 100%)" },
+    { "id": "man-of-steel", "name": "Man of Steel", "gradient": "linear-gradient(to right, #56ab2f 0%, #a8e063 100%)" },
+    { "id": "amethyst", "name": "Amethyst", "gradient": "linear-gradient(to right, #000428 0%, #004e92 100%)" },
+    { "id": "cheer-up-emo-kid", "name": "Cheer Up Emo Kid", "gradient": "linear-gradient(to right, #42275a 0%, #734b6d 100%)" },
+    { "id": "shore", "name": "Shore", "gradient": "linear-gradient(to right, #141e30 0%, #243b55 100%)" },
+    { "id": "facebook-messenger", "name": "Facebook Messenger", "gradient": "linear-gradient(to right, #f00000 0%, #dc281e 100%)" },
+    { "id": "soundcloud", "name": "SoundCloud", "gradient": "linear-gradient(to right, #2c3e50 0%, #fd746c 100%)" },
+    { "id": "behongo", "name": "Behongo", "gradient": "linear-gradient(to right, #2c3e50 0%, #4ca1af 100%)" },
+    { "id": "servquick", "name": "ServQuick", "gradient": "linear-gradient(to right, #e96443 0%, #904e95 100%)" },
+    { "id": "friday", "name": "Friday", "gradient": "linear-gradient(to right, #0b486b 0%, #f56217 100%)" },
+    { "id": "martini", "name": "Martini", "gradient": "linear-gradient(to right, #3a7bd5 0%, #3a6073 100%)" },
+    { "id": "metallic-toad", "name": "Metallic Toad", "gradient": "linear-gradient(to right, #00d2ff 0%, #928dab 100%)" },
+    { "id": "between-the-clouds", "name": "Between The Clouds", "gradient": "linear-gradient(to right, #2196f3 0%, #f44336 100%)" },
+    { "id": "crazy-orange-i", "name": "Crazy Orange I", "gradient": "linear-gradient(to right, #ff5f6d 0%, #ffc371 100%)" },
+    { "id": "hersheys", "name": "Hersheys", "gradient": "linear-gradient(to right, #ff4b1f 0%, #ff9068 100%)" },
+    { "id": "talking-to-mice-elf", "name": "Talking To Mice Elf", "gradient": "linear-gradient(to right, #16bffd 0%, #cb3066 100%)" },
+    { "id": "purple-bliss", "name": "Purple Bliss", "gradient": "linear-gradient(to right, #eecda3 0%, #ef629f 100%)" },
+    { "id": "predawn", "name": "Predawn", "gradient": "linear-gradient(to right, #1d4350 0%, #a43931 100%)" },
+    { "id": "endless-river", "name": "Endless River", "gradient": "linear-gradient(to right, #a80077 0%, #66ff00 100%)" },
+    { "id": "pastel-orange-at-the-sun", "name": "Pastel Orange at the Sun", "gradient": "linear-gradient(to right, #f7ff00 0%, #db36a4 100%)" },
+    { "id": "twitch", "name": "Twitch", "gradient": "linear-gradient(to right, #ff4b1f 0%, #1fddff 100%)" },
+    { "id": "atlas", "name": "Atlas", "gradient": "linear-gradient(to right, #ba5370 0%, #f4e2d8 100%)" },
+    { "id": "instagram", "name": "Instagram", "gradient": "linear-gradient(to right, #e0eafc 0%, #cfdef3 100%)" },
+    { "id": "flickr", "name": "Flickr", "gradient": "linear-gradient(to right, #4ca1af 0%, #c4e0e5 100%)" },
+    { "id": "vine", "name": "Vine", "gradient": "linear-gradient(to right, #000000 0%, #434343 100%)" },
+    { "id": "turquoise-flow", "name": "Turquoise flow", "gradient": "linear-gradient(to right, #4b79a1 0%, #283e51 100%)" },
+    { "id": "portrait", "name": "Portrait", "gradient": "linear-gradient(to right, #834d9b 0%, #d04ed6 100%)" },
+    { "id": "virgin-america", "name": "Virgin America", "gradient": "linear-gradient(to right, #0099f7 0%, #f11712 100%)" },
+    { "id": "koko-caramel", "name": "Koko Caramel", "gradient": "linear-gradient(to right, #2980b9 0%, #2c3e50 100%)" },
+    { "id": "fresh-turboscent", "name": "Fresh Turboscent", "gradient": "linear-gradient(to right, #5a3f37 0%, #2c7744 100%)" },
+    { "id": "green-to-dark", "name": "Green to dark", "gradient": "linear-gradient(to right, #4da0b0 0%, #d39d38 100%)" },
+    { "id": "ukraine", "name": "Ukraine", "gradient": "linear-gradient(to right, #5614b0 0%, #dbd65c 100%)" },
+    { "id": "curiosity-blue", "name": "Curiosity blue", "gradient": "linear-gradient(to right, #2f7336 0%, #aa3a38 100%)" },
+    { "id": "dark-knight", "name": "Dark Knight", "gradient": "linear-gradient(to right, #1e3c72 0%, #2a5298 100%)" },
+    { "id": "piglet", "name": "Piglet", "gradient": "linear-gradient(to right, #114357 0%, #f29492 100%)" },
+    { "id": "lizard", "name": "Lizard", "gradient": "linear-gradient(to right, #fd746c 0%, #ff9068 100%)" },
+    { "id": "sage-persuasion", "name": "Sage Persuasion", "gradient": "linear-gradient(to right, #eacda3 0%, #d6ae7b 100%)" },
+    { "id": "between-night-and-day", "name": "Between Night and Day", "gradient": "linear-gradient(to right, #6a3093 0%, #a044ff 100%)" },
+    { "id": "timber", "name": "Timber", "gradient": "linear-gradient(to right, #457fca 0%, #5691c8 100%)" },
+    { "id": "passion", "name": "Passion", "gradient": "linear-gradient(to right, #b24592 0%, #f15f79 100%)" },
+    { "id": "clear-sky", "name": "Clear Sky", "gradient": "linear-gradient(to right, #c02425 0%, #f0cb35 100%)" },
+    { "id": "master-card", "name": "Master Card", "gradient": "linear-gradient(to right, #403a3e 0%, #be5869 100%)" },
+    { "id": "back-to-earth", "name": "Back To Earth", "gradient": "linear-gradient(to right, #c2e59c 0%, #64b3f4 100%)" },
+    { "id": "deep-purple", "name": "Deep Purple", "gradient": "linear-gradient(to right, #ffb75e 0%, #ed8f03 100%)" },
+    { "id": "little-leaf", "name": "Little Leaf", "gradient": "linear-gradient(to right, #8e0e00 0%, #1f1c18 100%)" },
+    { "id": "netflix", "name": "Netflix", "gradient": "linear-gradient(to right, #76b852 0%, #8dc26f 100%)" },
+    { "id": "light-orange", "name": "Light Orange", "gradient": "linear-gradient(to right, #673ab7 0%, #512da8 100%)" },
+    { "id": "green-and-blue", "name": "Green and Blue", "gradient": "linear-gradient(to right, #00c9ff 0%, #92fe9d 100%)" },
+    { "id": "poncho", "name": "Poncho", "gradient": "linear-gradient(to right, #f46b45 0%, #eea849 100%)" },
+    { "id": "back-to-the-future", "name": "Back to the Future", "gradient": "linear-gradient(to right, #005c97 0%, #363795 100%)" },
+    { "id": "blush", "name": "Blush", "gradient": "linear-gradient(to right, #e53935 0%, #e35d5b 100%)" },
+    { "id": "inbox", "name": "Inbox", "gradient": "linear-gradient(to right, #fc00ff 0%, #00dbde 100%)" },
+    { "id": "purplin", "name": "Purplin", "gradient": "linear-gradient(to right, #2c3e50 0%, #3498db 100%)" },
+    { "id": "pale-wood", "name": "Pale Wood", "gradient": "linear-gradient(to right, #ccccb2 0%, #757519 100%)" },
+    { "id": "haikus", "name": "Haikus", "gradient": "linear-gradient(to right, #304352 0%, #d7d2cc 100%)" },
+    { "id": "pizelex", "name": "Pizelex", "gradient": "linear-gradient(to right, #ee9ca7 0%, #ffdde1 100%)" },
+    { "id": "joomla", "name": "Joomla", "gradient": "linear-gradient(to right, #ba8b02 0%, #181818 100%)" },
+    { "id": "christmas", "name": "Christmas", "gradient": "linear-gradient(to right, #525252 0%, #3d72b4 100%)" },
+    { "id": "minnesota-vikings", "name": "Minnesota Vikings", "gradient": "linear-gradient(to right, #004ff9 0%, #fff94c 100%)" },
+    { "id": "miami-dolphins", "name": "Miami Dolphins", "gradient": "linear-gradient(to right, #6a9113 0%, #141517 100%)" },
+    { "id": "forest", "name": "Forest", "gradient": "linear-gradient(to right, #f1f2b5 0%, #135058 100%)" },
+    { "id": "nighthawk", "name": "Nighthawk", "gradient": "linear-gradient(to right, #d1913c 0%, #ffd194 100%)" },
+    { "id": "superman", "name": "Superman", "gradient": "linear-gradient(to right, #7b4397 0%, #dc2430 100%)" },
+    { "id": "suzy", "name": "Suzy", "gradient": "linear-gradient(to right, #8e9eab 0%, #eef2f3 100%)" },
+    { "id": "dark-skies", "name": "Dark Skies", "gradient": "linear-gradient(to right, #136a8a 0%, #267871 100%)" },
+    { "id": "deep-space", "name": "Deep Space", "gradient": "linear-gradient(to right, #00bf8f 0%, #001510 100%)" },
+    { "id": "decent", "name": "Decent", "gradient": "linear-gradient(to right, #ff0084 0%, #33001b 100%)" },
+    { "id": "colors-of-sky", "name": "Colors Of Sky", "gradient": "linear-gradient(to right, #833ab4 0%, #fd1d1d 33%, #fcb045 100%)" },
+    { "id": "purple-white", "name": "Purple White", "gradient": "linear-gradient(to right, #feac5e 0%, #c779d0 33%, #4bc0c8 100%)" },
+    { "id": "ali", "name": "Ali", "gradient": "linear-gradient(to right, #6441a5 0%, #2a0845 100%)" },
+    { "id": "alihossein", "name": "Alihossein", "gradient": "linear-gradient(to right, #ffb347 0%, #ffcc33 100%)" },
+    { "id": "shahabi", "name": "Shahabi", "gradient": "linear-gradient(to right, #43cea2 0%, #185a9d 100%)" },
+    { "id": "red-ocean", "name": "Red Ocean", "gradient": "linear-gradient(to right, #ffa17f 0%, #00223e 100%)" },
+    { "id": "tranquil", "name": "Tranquil", "gradient": "linear-gradient(to right, #360033 0%, #0b8793 100%)" },
+    { "id": "transfile", "name": "Transfile", "gradient": "linear-gradient(to right, #948e99 0%, #2e1437 100%)" },
+    { "id": "sylvia", "name": "Sylvia", "gradient": "linear-gradient(to right, #1e130c 0%, #9a8478 100%)" },
+    { "id": "sweet-morning", "name": "Sweet Morning", "gradient": "linear-gradient(to right, #d38312 0%, #a83279 100%)" },
+    { "id": "politics", "name": "Politics", "gradient": "linear-gradient(to right, #73c8a9 0%, #373b44 100%)" },
+    { "id": "bright-vault", "name": "Bright Vault", "gradient": "linear-gradient(to right, #abbaab 0%, #ffffff 100%)" },
+    { "id": "solid-vault", "name": "Solid Vault", "gradient": "linear-gradient(to right, #fdfc47 0%, #24fe41 100%)" },
+    { "id": "sunset", "name": "Sunset", "gradient": "linear-gradient(to right, #83a4d4 0%, #b6fbff 100%)" },
+    { "id": "grapefruit-sunset", "name": "Grapefruit Sunset", "gradient": "linear-gradient(to right, #485563 0%, #29323c 100%)" },
+    { "id": "deep-sea-space", "name": "Deep Sea Space", "gradient": "linear-gradient(to right, #52c234 0%, #061700 100%)" },
+    { "id": "dusk", "name": "Dusk", "gradient": "linear-gradient(to right, #fe8c00 0%, #f83600 100%)" },
+    { "id": "minimal-red", "name": "Minimal Red", "gradient": "linear-gradient(to right, #00c6ff 0%, #0072ff 100%)" },
+    { "id": "royal", "name": "Royal", "gradient": "linear-gradient(to right, #70e1f5 0%, #ffd194 100%)" },
+    { "id": "mauve", "name": "Mauve", "gradient": "linear-gradient(to right, #556270 0%, #ff6b6b 100%)" },
+    { "id": "frost", "name": "Frost", "gradient": "linear-gradient(to right, #9d50bb 0%, #6e48aa 100%)" },
+    { "id": "lush", "name": "Lush", "gradient": "linear-gradient(to right, #780206 0%, #061161 100%)" },
+    { "id": "firewatch", "name": "Firewatch", "gradient": "linear-gradient(to right, #b3ffab 0%, #12fff7 100%)" },
+    { "id": "sherbert", "name": "Sherbert", "gradient": "linear-gradient(to right, #aaffa9 0%, #11ffbd 100%)" },
+    { "id": "blood-red", "name": "Blood Red", "gradient": "linear-gradient(to right, #000000 0%, #e74c3c 100%)" },
+    { "id": "sun-on-the-horizon", "name": "Sun on the Horizon", "gradient": "linear-gradient(to right, #f0c27b 0%, #4b1248 100%)" },
+    { "id": "iiit-delhi", "name": "IIIT Delhi", "gradient": "linear-gradient(to right, #ff4e50 0%, #f9d423 100%)" },
+    { "id": "50-shades-of-grey", "name": "50 Shades of Grey", "gradient": "linear-gradient(to right, #fbd3e9 0%, #bb377d 100%)" },
+    { "id": "dania", "name": "Dania", "gradient": "linear-gradient(to right, #000000 0%, #53346d 100%)" },
+    { "id": "limeade", "name": "Limeade", "gradient": "linear-gradient(to right, #606c88 0%, #3f4c6b 100%)" },
+    { "id": "disco", "name": "Disco", "gradient": "linear-gradient(to right, #c9ffbf 0%, #ffafbd 100%)" },
+    { "id": "love-couple", "name": "Love Couple", "gradient": "linear-gradient(to right, #649173 0%, #dbd5a4 100%)" },
+    { "id": "azure-pop", "name": "Azure Pop", "gradient": "linear-gradient(to right, #b993d6 0%, #8ca6db 100%)" },
+    { "id": "nepal", "name": "Nepal", "gradient": "linear-gradient(to right, #870000 0%, #190a05 100%)" },
+    { "id": "cosmic-fusion", "name": "Cosmic Fusion", "gradient": "linear-gradient(to right, #00d2ff 0%, #3a7bd5 100%)" },
+    { "id": "snapchat", "name": "Snapchat", "gradient": "linear-gradient(to right, #d3959b 0%, #bfe6ba 100%)" },
+    { "id": "ed-s-sunset-gradient", "name": "Ed's Sunset Gradient", "gradient": "linear-gradient(to right, #dad299 0%, #b0dab9 100%)" },
+    { "id": "brady-brady-fun-fun", "name": "Brady Brady Fun Fun", "gradient": "linear-gradient(to right, #e6dada 0%, #274046 100%)" },
+    { "id": "black-rose", "name": "Black Rosé", "gradient": "linear-gradient(to right, #5d4157 0%, #a8caba 100%)" },
+    { "id": "80-s-purple", "name": "80's Purple", "gradient": "linear-gradient(to right, #ddd6f3 0%, #faaca8 100%)" },
+    { "id": "radar", "name": "Radar", "gradient": "linear-gradient(to right, #616161 0%, #9bc5c3 100%)" },
+    { "id": "ibiza-sunset", "name": "Ibiza Sunset", "gradient": "linear-gradient(to right, #50c9c3 0%, #96deda 100%)" },
+    { "id": "dawn", "name": "Dawn", "gradient": "linear-gradient(to right, #215f00 0%, #e4e4d9 100%)" },
+    { "id": "mild", "name": "Mild", "gradient": "linear-gradient(to right, #c21500 0%, #ffc500 100%)" },
+    { "id": "vice-city", "name": "Vice City", "gradient": "linear-gradient(to right, #efefbb 0%, #d4d3dd 100%)" },
+    { "id": "jaipur", "name": "Jaipur", "gradient": "linear-gradient(to right, #ffeeee 0%, #ddefbb 100%)" },
+    { "id": "cocoaa-ice", "name": "Cocoaa Ice", "gradient": "linear-gradient(to right, #666600 0%, #999966 100%)" },
+    { "id": "easymed", "name": "EasyMed", "gradient": "linear-gradient(to right, #de6262 0%, #ffb88c 100%)" },
+    { "id": "rose-colored-lenses", "name": "Rose Colored Lenses", "gradient": "linear-gradient(to right, #e9d362 0%, #333333 100%)" },
+    { "id": "what-lies-beyond", "name": "What lies Beyond", "gradient": "linear-gradient(to right, #d53369 0%, #cbad6d 100%)" },
+    { "id": "roseanna", "name": "Roseanna", "gradient": "linear-gradient(to right, #a73737 0%, #7a2828 100%)" },
+    { "id": "honey-dew", "name": "Honey Dew", "gradient": "linear-gradient(to right, #f857a6 0%, #ff5858 100%)" },
+    { "id": "under-the-lake", "name": "Under the Lake", "gradient": "linear-gradient(to right, #4b6cb7 0%, #182848 100%)" },
+    { "id": "the-blue-lagoon", "name": "The Blue Lagoon", "gradient": "linear-gradient(to right, #fc354c 0%, #0abfbc 100%)" },
+    { "id": "can-you-feel-the-love-tonight", "name": "Can You Feel The Love Tonight", "gradient": "linear-gradient(to right, #414d0b 0%, #727a17 100%)" },
+    { "id": "very-blue", "name": "Very Blue", "gradient": "linear-gradient(to right, #e43a15 0%, #e65245 100%)" },
+    { "id": "love-and-liberty", "name": "Love and Liberty", "gradient": "linear-gradient(to right, #c04848 0%, #480048 100%)" },
+    { "id": "orca", "name": "Orca", "gradient": "linear-gradient(to right, #5f2c82 0%, #49a09d 100%)" },
+    { "id": "venice", "name": "Venice", "gradient": "linear-gradient(to right, #ec6f66 0%, #f3a183 100%)" },
+    { "id": "pacific-dream", "name": "Pacific Dream", "gradient": "linear-gradient(to right, #7474bf 0%, #348ac7 100%)" },
+    { "id": "learning-and-leading", "name": "Learning and Leading", "gradient": "linear-gradient(to right, #ece9e6 0%, #ffffff 100%)" },
+    { "id": "celestial", "name": "Celestial", "gradient": "linear-gradient(to right, #dae2f8 0%, #d6a4a4 100%)" },
+    { "id": "purplepine", "name": "Purplepine", "gradient": "linear-gradient(to right, #ed4264 0%, #ffedbc 100%)" },
+    { "id": "sha-la-la", "name": "Sha la la", "gradient": "linear-gradient(to right, #dc2424 0%, #4a569d 100%)" },
+    { "id": "mini", "name": "Mini", "gradient": "linear-gradient(to right, #24c6dc 0%, #514a9d 100%)" },
+    { "id": "maldives", "name": "Maldives", "gradient": "linear-gradient(to right, #283048 0%, #859398 100%)" },
+    { "id": "cinnamint", "name": "Cinnamint", "gradient": "linear-gradient(to right, #3d7eaa 0%, #ffe47a 100%)" },
+    { "id": "html", "name": "Html", "gradient": "linear-gradient(to right, #1cd8d2 0%, #93edc7 100%)" },
+    { "id": "coal", "name": "Coal", "gradient": "linear-gradient(to right, #232526 0%, #414345 100%)" },
+    { "id": "sunkist", "name": "Sunkist", "gradient": "linear-gradient(to right, #757f9a 0%, #d7dde8 100%)" },
+    { "id": "blue-skies", "name": "Blue Skies", "gradient": "linear-gradient(to right, #5c258d 0%, #4389a2 100%)" },
+    { "id": "chitty-chitty-bang-bang", "name": "Chitty Chitty Bang Bang", "gradient": "linear-gradient(to right, #134e5e 0%, #71b280 100%)" },
+    { "id": "visions-of-grandeur", "name": "Visions of Grandeur", "gradient": "linear-gradient(to right, #2bc0e4 0%, #eaecc6 100%)" },
+    { "id": "crystal-clear", "name": "Crystal Clear", "gradient": "linear-gradient(to right, #085078 0%, #85d8ce 100%)" },
+    { "id": "mello", "name": "Mello", "gradient": "linear-gradient(to right, #4776e6 0%, #8e54e9 100%)" },
+    { "id": "compare-now", "name": "Compare Now", "gradient": "linear-gradient(to right, #614385 0%, #516395 100%)" },
+    { "id": "meridian", "name": "Meridian", "gradient": "linear-gradient(to right, #1f1c2c 0%, #928dab 100%)" },
+    { "id": "relay", "name": "Relay", "gradient": "linear-gradient(to right, #16222a 0%, #3a6073 100%)" },
+    { "id": "alive", "name": "Alive", "gradient": "linear-gradient(to right, #ff8008 0%, #ffc837 100%)" },
+    { "id": "scooter", "name": "Scooter", "gradient": "linear-gradient(to right, #1d976c 0%, #93f9b9 100%)" },
+    { "id": "terminal", "name": "Terminal", "gradient": "linear-gradient(to right, #eb3349 0%, #f45c43 100%)" },
+    { "id": "telegram", "name": "Telegram", "gradient": "linear-gradient(to right, #dd5e89 0%, #f7bb97 100%)" },
+    { "id": "crimson-tide", "name": "Crimson Tide", "gradient": "linear-gradient(to right, #4cb8c4 0%, #3cd3ad 100%)" },
+    { "id": "socialive", "name": "Socialive", "gradient": "linear-gradient(to right, #1fa2ff 0%, #12d8fa 33%, #a6ffcb 100%)" },
+    { "id": "subu", "name": "Subu", "gradient": "linear-gradient(to right, #1d2b64 0%, #f8cdda 100%)" },
+    { "id": "shift", "name": "Shift", "gradient": "linear-gradient(to right, #ff512f 0%, #f09819 100%)" },
+    { "id": "clot", "name": "Clot", "gradient": "linear-gradient(to right, #1a2980 0%, #26d0ce 100%)" },
+    { "id": "broken-hearts", "name": "Broken Hearts", "gradient": "linear-gradient(to right, #aa076b 0%, #61045f 100%)" },
+    { "id": "kimoby-is-the-new-blue", "name": "Kimoby Is The New Blue", "gradient": "linear-gradient(to right, #ff512f 0%, #dd2476 100%)" },
+    { "id": "dull", "name": "Dull", "gradient": "linear-gradient(to right, #f09819 0%, #edde5d 100%)" },
+    { "id": "purpink", "name": "Purpink", "gradient": "linear-gradient(to right, #403b4a 0%, #e7e9bb 100%)" },
+    { "id": "orange-coral", "name": "Orange Coral", "gradient": "linear-gradient(to right, #e55d87 0%, #5fc3e4 100%)" },
+    { "id": "summer", "name": "Summer", "gradient": "linear-gradient(to right, #003973 0%, #e5e5be 100%)" },
+    { "id": "king-yna", "name": "King Yna", "gradient": "linear-gradient(to right, #cc95c0 0%, #dbd4b4 33%, #7aa1d2 100%)" },
+    { "id": "velvet-sun", "name": "Velvet Sun", "gradient": "linear-gradient(to right, #3ca55c 0%, #b5ac49 100%)" },
+    { "id": "zinc", "name": "Zinc", "gradient": "linear-gradient(to right, #348f50 0%, #56b4d3 100%)" },
+    { "id": "hydrogen", "name": "Hydrogen", "gradient": "linear-gradient(to right, #da22ff 0%, #9733ee 100%)" },
+    { "id": "argon", "name": "Argon", "gradient": "linear-gradient(to right, #02aab0 0%, #00cdac 100%)" },
+    { "id": "lithium", "name": "Lithium", "gradient": "linear-gradient(to right, #ede574 0%, #e1f5c4 100%)" },
+    { "id": "digital-water", "name": "Digital Water", "gradient": "linear-gradient(to right, #d31027 0%, #ea384d 100%)" },
+    { "id": "orange-fun", "name": "Orange Fun", "gradient": "linear-gradient(to right, #603813 0%, #b29f94 100%)" },
+    { "id": "rainbow-blue", "name": "Rainbow Blue", "gradient": "linear-gradient(to right, #e52d27 0%, #b31217 100%)" },
+    { "id": "pink-flavour", "name": "Pink Flavour", "gradient": "linear-gradient(to right, #ff6e7f 0%, #bfe9ff 100%)" },
+    { "id": "sulphur", "name": "Sulphur", "gradient": "linear-gradient(to right, #77a1d3 0%, #79cbca 33%, #e684ae 100%)" },
+    { "id": "selenium", "name": "Selenium", "gradient": "linear-gradient(to right, #314755 0%, #26a0da 100%)" },
+    { "id": "delicate", "name": "Delicate", "gradient": "linear-gradient(to right, #2b5876 0%, #4e4376 100%)" },
+    { "id": "ohhappiness", "name": "Ohhappiness", "gradient": "linear-gradient(to right, #e65c00 0%, #f9d423 100%)" },
+    { "id": "lawrencium", "name": "Lawrencium", "gradient": "linear-gradient(to right, #2193b0 0%, #6dd5ed 100%)" },
+    { "id": "relaxing-red", "name": "Relaxing red", "gradient": "linear-gradient(to right, #cc2b5e 0%, #753a88 100%)" },
+    { "id": "taran-tado", "name": "Taran Tado", "gradient": "linear-gradient(to right, #ec008c 0%, #fc6767 100%)" },
+    { "id": "bighead", "name": "Bighead", "gradient": "linear-gradient(to right, #1488cc 0%, #2b32b2 100%)" },
+    { "id": "sublime-vivid", "name": "Sublime Vivid", "gradient": "linear-gradient(to right, #00467f 0%, #a5cc82 100%)" },
+    { "id": "sublime-light", "name": "Sublime Light", "gradient": "linear-gradient(to right, #076585 0%, #ffffff 100%)" },
+    { "id": "pun-yeta", "name": "Pun Yeta", "gradient": "linear-gradient(to right, #bbd2c5 0%, #536976 100%)" },
+    { "id": "quepal", "name": "Quepal", "gradient": "linear-gradient(to right, #b79891 0%, #94716b 100%)" },
+    { "id": "sand-to-blue", "name": "Sand to Blue", "gradient": "linear-gradient(to right, #bbd2c5 0%, #536976 33%, #292e49 100%)" },
+    { "id": "wedding-day-blues", "name": "Wedding Day Blues", "gradient": "linear-gradient(to right, #536976 0%, #292e49 100%)" },
+    { "id": "shifter", "name": "Shifter", "gradient": "linear-gradient(to right, #acb6e5 0%, #86fde8 100%)" },
+    { "id": "red-sunset", "name": "Red Sunset", "gradient": "linear-gradient(to right, #ffe259 0%, #ffa751 100%)" }
+];
+
+export const GRADIENTS = gradientsData.map(g => ({
+  ...g,
+  name: g.name.trim()
+}));
+
+// Inicia el selector de degradados cuando el DOM está listo.
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Instanciar el selector de gradientes primero.
+    const gradientSelector = new GradientSelector(GRADIENTS, { shortcutKey: 'g' });
+
+    // 2. Instanciar el gestor de tema y pasarle la instancia del selector de gradientes.
+    new AutoTheme(myBrandColors, {
+      shortcutKey: 't',
+      gradientSelector: gradientSelector // Inyectar la dependencia
+    });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Ascci de mi bella Dulce
 (()=>{const b="font-family:monospace;font-size:10px;line-height:7px;letter-spacing:-1.5px;padding:0;margin:0;zoom:0.5";const c=["transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#40514b","transparent","transparent","transparent","transparent","transparent","#a6abaa","#696e6d","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#5e6869","#5d6b67","#607473","#4c5c58","transparent","transparent","transparent","transparent","transparent","#777c7a","#8a8f8e","transparent","transparent","transparent","transparent","#878785","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#566360","#7b8480","#424d45","#59645e","transparent","transparent","transparent","#7d8180","#888c8b","#8d938c","transparent","transparent","transparent","transparent","#9da19d","transparent","transparent","transparent","#a7aca6","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#56635d","#6d746d","#979b93","transparent","#6a7473","transparent","#7b7e7c","#8d9391","transparent","#6b6f67","transparent","transparent","transparent","#cacac7","transparent","transparent","transparent","#b2b3b0","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#606e68","#6c756e","#66746b","transparent","#666d6b","#4e5754","transparent","transparent","transparent","transparent","#babeb6","#c8c9c6","#e5e6e2","#c5c6c4","transparent","#bec1bb","#c2c4bc","#9da199","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#cdbaa5","#ccb9a4","#ac9c87","#746d5d","#7d786d","#888c81","#a8a69e","#959289","#939990","#b5b5ae","#afb1aa","#b9bab3","#d3d4cd","#acb1aa","#939992","#999e96","#babebb","transparent","#6a6c67","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#8d7d68","#a3866d","#c7a68a","#b9977b","#caac8e","#caaa8d","#cdad92","#c7ab8f","#c9ad94","#c8ad96","#c9b49c","#c0ae9b","#bfb1a1","#cabbab","#c0b1a0","#cdc1b4","#b7b2a7","#a4a599","#c4bfb7","#c8c4bd","#c4c0b8","#b4aca2","#cabdb0","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#9c9388","#887767","#927860","#9d7c5f","#aa886c","#a07e61","#bf9d81","#c5a387","#c6a88c","#c8ac8f","#c7aa90","#bea48c","#c9b39c","#c9b49c","#c7b199","#cbb69f","#d2bda7","#d3bdaa","#d7c2b0","#c8b5a3","#bca997","#d1bead","#c8b39f","#c0a892","#c8b19a","#d8c0a9","#cfb59a","#c7a98c","#caad92","#d3c2b2","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#a8a297","#877d71","#716151","#947a64","#c2a388","#af9076","#987a62","#a0826a","#a1856f","#ac907a","#b19782","#b59b86","#b9a088","#bca38b","#c8b198","#c4af97","#d2bca7","#cab49b","#cbb197","#ccb29b","#d5bba4","#d7bda6","#dcc6ad","#e0cdb4","#e3ceb4","#e4ceb2","#e3ceb3","#dec8ac","#ceb194","#c7a68a","#c7a68a","#c1a084","#cbb399","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#9c968c","#7f756a","#7c6d5f","#98826e","#b99e81","#b0947c","#7b644d","#735b4b","#816d5b","#8b7765","#8f7964","#9b8470","#ac947d","#b69d86","#baa189","#bea68e","#c4ab92","#cbb198","#d1b7a1","#d2b9a3","#d1b79e","#c8ad94","#d1b59d","#d7bda4","#e4ccb3","#e5cfb6","#dfc9b1","#e4cdb4","#e7d0b7","#e8d1b8","#dec6ac","#d3b69b","#d0b295","#cbad90","#cbab8f","#c8aa8a","#cdb59d","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#787068","#807365","#8d7b67","#b79d82","#a9876a","#91795f","#483326","#664f40","#8a735c","#937b65","#876e5b","#86715c","#96806b","#a38a74","#b49b83","#c1a990","#c6ae95","#c9b299","#c2ac93","#cab39a","#cfb59a","#cbb091","#bfa389","#c5a88d","#dac0a4","#e5ceb2","#e4cdb3","#e4ceb4","#e8d4bb","#ebd9bf","#ebd9c0","#ead6bc","#e1cbaf","#d6b99c","#c5a68a","#d4b496","#dabd9b","#ccae8d","#d0b197","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#73655e","#8e7a63","#a68a6c","#997d5f","#675244","#3e342a","#61503a","#7c6850","#7c634e","#745b47","#816856","#927f68","#a48d78","#b09581","#b0977e","#b49b82","#bba389","#c6ad94","#b79e87","#a78d76","#b79b81","#c7a98b","#b99c7f","#c3a384","#d2b293","#e3c6a8","#e4caae","#e1caaf","#e2cdb4","#e0cdb5","#e4d1b8","#ebd6bd","#e8d2ba","#c8ae96","#c5a68f","#d4b89c","#c4a489","#b99a81","#d8bfa4","#c9a58c","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#887b6e","#85705d","#a78a71","#a28b76","#6f5b4a","#594637","#523f2d","#614f3b","#574433","#64503f","#7b6452","#a48e77","#ab9279","#ad947a","#a08470","#967d68","#9c8470","#ad9480","#b29986","#9a806f","#775d4a","#9e8368","#c6a88b","#cdad91","#d5b699","#c6aa8c","#d7bc9e","#dabda0","#d7b99c","#c6a98b","#cfb398","#dec7b1","#e6d4bd","#ebd9c1","#ebd8bf","#c4a892","#bda088","#ba9b7f","#ad8a6f","#b6957a","#c9ac90","#cba88d","#cdaf96","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#837163","#a68f79","#847765","#91887d","#74695d","#5f4f3f","#5b4839","#523f30","#5c4736","#846b56","#a89078","#a48c72","#977f66","#63523f","#443d33","#4b3728","#6d4d33","#4f4339","#433b34","#645647","#b8a590","#b39a83","#d7bba1","#dec4ab","#cdb299","#d4baa0","#c4a689","#ccae90","#bfa286","#a38b73","#90765f","#7a6151","#856f59","#c0aa95","#e6d4ba","#e7d0b7","#b7987d","#a6876b","#9d7e64","#a8886e","#ceb090","#c5a98b","#d4bba7","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#9c9186","transparent","transparent","#706a5c","#665b4a","#5f4f3e","#51402f","#5b4b39","#77644e","#89745b","#89735b","#947d68","#886f5c","#5b5040","#423b2f","#42362a","#6b4e36","#5b4431","#46392c","#45392f","#705e4d","#b59f86","#ccb296","#c9b096","#c5ab92","#c5ad93","#cdb398","#d0b498","#bca389","#8a7d70","#a78669","#8f816f","#866c56","#a18770","#dcc4aa","#dcc3a9","#cfb49d","#af9379","#ac9175","#c1a486","#c0a081","#ba9a7f","#b9997d","#c6b19b","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#85847a","#746756","#6c5b49","#62503d","#604d39","#614f3b","#5f4c3a","#6a5643","#7c6850","#877058","#8c765f","#7d6755","#685747","#5c4c3c","#594b3e","#625447","#736457","#998a79","#a49584","#a38e7d","#9c8470","#9f866f","#a58c76","#ab927a","#baa088","#c3a891","#d0b59b","#d1b89f","#b49c84","#9e856f","#ac927d","#dfc8af","#e7d2b7","#dfc6ad","#d7bda3","#ba9f87","#a68d79","#9e7c63","#b0896e","#ba9b82","#baa18a","#c0b09d","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#7c786a","#82705d","#816954","#7d6550","#78634e","#6c5946","#5a4a39","#4e4131","#5c4e3d","#695644","#786351","#786550","#6e5b49","#645343","#6b5a4b","#715f4e","#725d4c","#7a6555","#816c5c","#7c6859","#84705f","#8e7661","#917867","#8a7263","#8c7463","#9b806d","#b0957f","#c3a88d","#d4b89a","#dbbfa2","#dec1a5","#e2c8ad","#e7d1b4","#e8d2b8","#e7ceb5","#cfb39a","#c5ab90","#c9b8a8","transparent","#c19e8b","transparent","#a19082","#c8baa9","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#b0afa5","#968879","#988772","#917d67","#826a56","#765e49","#725b48","#6c5949","#5d4b3c","#5f4e3e","#635344","#685d4d","#645849","#605547","#5e5445","#655848","#685a4a","#756353","#8b7867","#9f8976","#ae9781","#b29a84","#af9983","#a28f7e","#978374","#7c6d61","#7e7364","#857665","#998672","#b49d87","#c2a88e","#caae91","#d6bb9f","#e0c7ae","#e7d1b7","#edd6bb","#ecd4ba","#e6cbb0","#e1c8ad","#d8c5b0","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#a39f97","#877d6e","#9e8d7b","#97836c","#a08670","#987d68","#8c725d","#7e6751","#6e5c45","#665541","#6f5e4d","#6a5a4a","#625242","#6a5d4d","#5e5141","#615644","#736554","#816c5c","#856e5e","#86705f","#85715d","#816d5a","#6b5e4e","#48463c","#3a3d36","#393833","#42433f","#53514a","#5c564e","#625850","#726359","#c0aa90","#d6b99e","#dbc0a7","#dec4ab","#e9d3b8","#e7d2b7","#ead2b8","#e6ceb4","#dac2a8","#d7c2b0","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#8b8a84","#655d51","#8b7969","#a18872","#9f846d","#9b816a","#947a64","#826651","#755e47","#6f5944","#695342","#635141","#655546","#645646","#756858","#7a6854","#7c6a55","#7e6c5a","#837362","#8e7c6a","#917e6e","#817264","#5d5248","#35302d","#35302c","#504740","#2e2721","#564d45","#70625a","#61544c","#423730","#867461","#c9b199","#d8c2a9","#ddc7ad","#e4cfb4","#e6d1b6","#e5cdb3","#e8d0b6","#e3cab1","#dbc2ab","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#434d5e","#6e675f","#ac9880","#b0977d","#a78a71","#9a7c65","#8a6e57","#7c604a","#755841","#705540","#6b513f","#6c5343","#72604e","#746254","#6b5e4e","#6e6353","#7d7161","#877866","#907f6d","#938271","#948373","#8f7f6f","#8d8174","#786c63","#4d443d","#463d36","#3f362f","#4a3e38","#53443c","#5f5149","#66564d","#a18f7f","#c3ae9c","#d2bba7","#d3bca4","#d8bfa5","#e7cfb5","#ead1b7","#e3cbb1","#e2cab0","#e2ceb2","#d8c7bc","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#133365","#45556c","#9e9282","#998573","#917e6a","#94806d","#8f7863","#907863","#7e6350","#866855","#765b48","#725948","#715c47","#735e4a","#776556","#716654","#7b6d5a","#877966","#8f7e6d","#927f6e","#948272","#a89689","#ac9b8e","#9e8d80","#96877a","#6f6157","#584a43","#52453d","#4c4139","#584a42","#69594e","#8c796b","#beaa9d","#cdb8a9","#d2bca6","#cfb9a0","#d0b89a","#dfc6ae","#e0c9b0","#e4cfb2","#e7d1b3","#dbc7ae","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#213f75","#494d69","#44515b","#68645b","#877f71","#8b7a6b","#a28d7c","#8a7461","#907a66","#9f866c","#846854","#826854","#6f5644","#6a5441","#7b6553","#756352","#7b6557","#816d5a","#887463","#867460","#8e7c69","#968372","#9b8271","#9d8673","#9f8878","#9b8778","#8e7c71","#7f6962","#78645c","#705a53","#786659","#958371","#af9c87","#c2ae9b","#c6b29e","#ccb8a0","#c5b197","#d1b8a0","#d5bca1","#e1cdb1","#e2ceaf","#e4cfb0","#ddc9ad","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#214e84","#2e4f89","#424c69","#1b3149","#324150","#4b474e","#887d74","#88786b","#9a8974","#b09c83","#a48d70","#a08670","#745c47","#755d4a","#725a4b","#7b6253","#705848","#6d5646","#765e4d","#6b5a49","#65594b","#5e5248","#716058","#7d5d55","#966c64","#a57a71","#b68a84","#966765","#ad7978","#bd8c88","#bc9088","#927666","#c3af97","#c0aa8f","#bfa48c","#b69b83","#bba587","#c9b194","#ceb59a","#dcc3ac","#ddcab3","#ddc9b0","#ddc1a6","#d7b9a1","#cfbba5","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#3a4e6a","#2b5691","#264e95","#15346a","#092646","#182b4a","#4a586e","#44484c","#867c74","#b09e8c","#b7a089","#b89e87","#a2846e","#896d58","#866955","#85674e","#85654e","#7c614f","#6d5747","#695546","#615043","#574b43","#302b25","#4b3d39","#513834","#946b68","#bb8887","#ca9494","#d6a3a2","#bc8585","#d09c9a","#d8a69f","#dfb6ab","#c9b09a","#d6ba9f","#cfb59b","#cab59c","#b39d86","#ba9f89","#e2cab4","#e2cfb7","#d1ccbf","#c0bcbc","#dfbb98","#d9bba0","#d1b9a4","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#022c58","#0f5aa2","#2056ab","#153d7b","#022b51","#163967","#1d3a66","#243341","#787876","#a0917d","#b09982","#b89d87","#a48a72","#ab8f77","#a2836a","#a28367","#937458","#8b6b51","#8b6f5a","#8c735d","#7c6753","#6f6150","#4f493d","#30312c","#2f2925","#a17878","#d3a19f","#c99896","#d5a3a2","#d6a4a2","#d3a1a0","#c99893","#cea098","#dab8a9","#d1b79f","#dfcaaf","#e4d3bb","#d1bfb0","#b8b0a6","#d0ccbf","#cec7c3","#a6c4d0","#afbfcf","#e5c6a3","#d4bca2","#d7c6b7","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#122f4b","#023a6d","#01538f","#2373c3","#465d8b","#232c3f","#0c3a72","#0d3b70","#0e2549","#374968","#918e8e","#aa9583","#bfa690","#b3997e","#bb9f83","#a5896c","#b69b7e","#ac9174","#a68669","#a7876e","#a38871","#a9937d","#ab9887","#816c61","#5c564e","#353a34","#2f2e27","#816661","#d4a4a2","#deabae","#d6a7a9","#cd9fa1","#ca9997","#d9a8a4","#dcbcae","#ccb9a3","#cbb6a4","#e4d3be","#ddd3c1","#c5d1c8","#c5bfc1","#acb5c6","#79b4db","#a7bdcd","#efceae","#dfc5aa","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#0a6678","#003950","#013e73","#06477f","#89787a","#c19d70","#ab8a68","#263957","#2056a3","#0d2859","#234584","#838fae","#a39690","#b1968a","#b49c84","#aa9079","#b19780","#c3a98f","#c3a98e","#bea287","#bda286","#c0a68d","#c1ab95","#a99685","#a39283","#a19081","#ad9e90","#a29889","#5a5147","#493a34","#706058","#87726b","#8b716b","#c9afa4","#c9b4a6","#d1c2b0","#a59790","#a5958e","#a7a4a2","#a3b9bf","#93bad8","#7fb5e3","#7fafde","#5daee1","#a4bcc6","#e7caae","#dfc3a7","#dbc1a9","#cec3ba","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#0a6aab","#05416c","#063466","#003d71","#143766","#95735d","#c68e96","#be9397","#9c9093","#4466a0","#0f386a","#103f79","#4373b6","#596a84","#918679","#9f8d7e","#aa9684","#b9a38f","#cfb6a2","#ccb29e","#ccb29c","#cdb39d","#c8b3a1","#d0bfaf","#c2b3a3","#c0b0a1","#c2b1a3","#c1b0a2","#beaea1","#bbac9f","#bdad9f","#c0afa3","#c8b5aa","#c2b0a3","#c8b6a8","#cfbeac","#d2c7b3","#a8a0a2","#818997","#5c7ea5","#5aaae4","#59ace7","#59abdd","#58a9dc","#5ba9e2","#b2c2c5","#e8caac","#e1c6a9","#d9c1a6","transparent","transparent","transparent","transparent","transparent","transparent","#3a82b0","#026fb8","#0263ad","#004785","#02537e","#024776","#083a70","#39485e","#647c8d","#3264a5","#113d73","#27599f","#0b447f","#083d7e","#4375cb","#667db4","#979190","#a99b91","#baa796","#c7b3a0","#cbb7a8","#cfbbad","#ccb8a7","#c4b1a0","#d1c1b6","#d5c8bc","#cec3b8","#b9aea3","#afa298","#baaca3","#b2a49b","#b7a99d","#af9f93","#c5b3a6","#ccbaaa","#d1c6b5","#bcb4a7","#c5beba","#a5abb3","#677c99","#6f8ab1","#57a2d8","#73a6d8","#70a9c6","#6ac3cb","#57b4d1","#52aee1","#c4cbc2","#e8cdac","#d7c8b1","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#2795bf","#0a74b8","#0662af","#095195","#013469","#00416e","#063967","#0b3865","#0b4176","#0d457f","#0a3f74","#316fbb","#226baf","#196aaf","#0f5aa8","#3971b7","#7d88a1","#a8a2a3","#b6aca7","#c9bfb6","#c4bbb0","#beb6ab","#a9a6a1","#9d9998","#a6a6a7","#b6b4b3","#938f8b","#9c9799","#97929b","#9a999d","#939398","#868895","#a4a1a1","#cdc7be","#c5bfba","#aab4bf","#4b74a1","#7ea5cc","#5a83ae","#19497b","#629dd9","#56abe2","#8fa9c1","#c5cdd2","#d0e1e6","#59b0d4","#59a7da","#d3ccbc","#e8d1b1","#e4cdb4","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#1a6fab","#146abb","#0e61af","#075aa5","#013a76","#033669","#09396b","#0c3666","#0e3460","#143565","#1b4173","#3e8ac2","#4197d1","#748eb8","#7a8fb1","#3991c9","#0e91d7","#56a9d1","#627b8f","#677885","#5c7790","#4b739b","#547aab","#5078b3","#5486c0","#476eb5","#426fbd","#3a6db8","#3768ad","#355fa1","#516c8c","#5c6e81","#54728a","#477092","#678fb8","#6b94c7","#4c7ebf","#3969a3","#0e4789","#5e9bda","#56a7e7","#50a8e2","#70aad5","#76c8d1","#76b6c9","#67a9d3","#71add5","#e6d0b4","#e4cdb3","#dfc3a8","#d4c0b0","transparent","transparent","transparent","transparent","transparent","transparent","#176fa7","#1c73c2","#135ba3","#0a63ac","#064a79","#013b5f","#07548c","#19629c","#9d9895","#a88588","#5f656f","#173754","#6196c6","#88a4d1","#78a9d8","#238ed0","#1397dd","#62acd6","#638ab0","#4374b9","#215ab1","#174b9b","#195fa0","#347398","#3b657f","#224670","#093765","#013365","#07305f","#1a3752","#524c63","#415c93","#4b82c9","#4688d6","#3686c8","#4099c9","#185c8c","#0d4377","#4b88bd","#4fa8e5","#4fa8e6","#52a7e6","#57a8e7","#58a9e9","#55ace8","#51abe6","#a2c3d5","#ecd2b3","#e2c9ae","#ddccbb","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#287f9d","#ac95a2","#5f6783","#26528b","#74859b","#1c666d","#06456c","#5686a0","#336f9b","#294c7c","#19396b","#42436e","#2c78b2","#1e8ed7","#208cd7","#2890de","#2592e1","#246aa1","#257390","#4599a9","#3f658e","#2c5889","#194b80","#0e4a8f","#13498b","#104c94","#1e54a5","#2c67b8","#ab9794","#d3aeb2","#6a87bb","#3981ca","#2977c1","#1b71b1","#146095","#054379","#043c70","#5f9bc7","#6fc3e7","#5aa8e4","#4ea7e5","#51a6e6","#63a4e3","#69a4da","#a2aec4","#c5b1a7","#e6cfb6","#e4cab1","#e3cbaf","#dccab3","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#264c6f","#888b95","#b99a97","#466895","#015aa9","#135596","#4f546b","#595773","#665871","#2a406c","#1d4174","#49608c","#5683b7","#3597dd","#4295db","#3a8dd5","#1e6da3","#3175c0","#6581ac","#738ebb","#3162a8","#256fb9","#2769b4","#2b5fa1","#8b8684","#c6987a","#bb839a","#9f8a92","#7b8085","#285c9a","#1460b2","#1965b2","#0e5aa1","#02407d","#063c74","#184c89","#4382b9","#58aade","#51a7e7","#4fa6e7","#50a4e8","#52a5ea","#9ab0c6","#e8d1c4","#e3cfb7","#e7d3b7","#e3d1b3","#e0caad","#daccb8","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#0d5792","#367cbc","#2771b5","#0363af","#0063b1","#085aa4","#0254a5","#034e99","#00478e","#004585","#0b4f93","#388ace","#0a579d","#1093dd","#1094e0","#0983d0","#245b93","#5880ba","#6688ab","#b7b1ab","#206bbb","#064494","#155198","#6c7282","#b59388","#b89f9c","#797689","#2c5d9b","#1a5393","#084689","#003a79","#053b80","#104994","#214f8f","#40699e","#5ea5d9","#7aa5d9","#e4bbc4","#9da9c1","#5ba2e0","#58a3e1","#aeb1bd","#e5d2bc","#e7d1b9","#e4ceb4","#e1c8af","#dbc7b3","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#133d5f","#0d5ea2","#077bc4","#0073be","#036eba","#0060ac","#0156a3","#01509b","#004c90","#05538f","#09508d","#014380","#066aa5","#029ae4","#0295e0","#028dda","#085ea1","#6e6e8a","#aaaabc","#5e7cac","#2c6ab4","#3f8ad7","#1459a3","#013471","#05356e","#073974","#073e7e","#074188","#074790","#0b4896","#0b4a97","#164c98","#214d91","#2d5f93","#5197d4","#99a4c2","#c8afba","#d4b1c1","#a2a5c2","#57a4e2","#92b7cf","#e8d4b9","#e6d2bb","#e8d1b8","#e5ceb5","#d8c2ad","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#32525d","#133c5b","#025591","#0275c4","#0175c2","#016fb1","#0181af","#017a9e","#016991","#004b85","#004787","#01518e","#2b87c1","#169de2","#0294e0","#038edc","#0e6cb4","#3c5881","#5d6f88","#6f8bb2","#0c7bc7","#0257a6","#1668bc","#327ac9","#285e93","#1c4d7b","#034588","#074382","#064183","#0d4189","#10448d","#0f4991","#165b9d","#3785be","#58a4de","#7a9ed0","#6ca2d7","#52abe0","#5ea6dc","#b9c7c8","#e8d3b5","#ead1b9","#e6d0b8","#e6ceb4","#e5cdb3","#dbc8b1","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#a0a9b6","#275a6e","#123955","#083f5e","#0e4777","#0273b6","#0172c5","#0861ad","#1d62a0","#074d84","#024f82","#064983","#033d7c","#90a0c0","#5698bf","#0592dd","#0191de","#0075c0","#01569d","#03599e","#3679ae","#358ac5","#0b76c2","#047fb6","#01699f","#054c92","#1a579f","#0a3f87","#0a3d77","#113d79","#184073","#0e3f78","#174779","#6d839a","#69a7ca","#48a5e7","#4da6e8","#52a6e8","#66acd9","#d3c8af","#dcc5ad","#dfcebb","#e4cfb7","#e5d0b5","#e5cfb3","#d9c5ab","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#7c898f","#446573","#2c5871","#163c56","#0f4865","#115f83","#044b74","#02406f","#045ca1","#00579e","#004486","#003971","#013d70","#144b81","#7bb0d9","#5aa4d3","#64acdb","#3fa5dc","#0a83c7","#0168b0","#015da0","#0868ae","#177cc1","#1b8ad2","#216eae","#065a8a","#0e3b75","#043b74","#083c76","#0a3c77","#0b3d7d","#244a77","#425f79","#908991","#c6b1c4","#51a5db","#4ea4e1","#52a5dd","#92acb5","#d0b496","#ccb49c","#e2cbb2","#e1c9b1","#e5cdb3","#e5ceb0","#e5ceae","#e1c8ad","#dbc7af","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#9aa0a1","#6b7880","#4a6872","#3c6170","#395966","#294956","#11384b","#194361","#316182","#0e3b5f","#042e55","#023360","#084078","#00356c","#023663","#5787ba","#8bafe4","#8daddd","#89abdb","#7faad9","#158bcc","#107ac1","#0c67b1","#0d64ad","#1570b8","#2282c6","#817da5","#a68e93","#32597a","#053b77","#0c3b6f","#073d73","#0d3b77","#123a77","#204b89","#9eaab6","#5da7dc","#75bae3","#81bad3","#a09791","#b29580","#c8b098","#d1b59c","#d3b9a1","#e2cbb1","#e5cdb2","#e5cfaf","#e4cbac","#e2c9aa","#e0cab6","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#7c858a","#4d656d","#435f65","#3f595c","#3d5455","#3d5252","#3f4f4f","#3e4e4e","#3d4e4c","#43524d","#475250","#465250","#2d4258","#0e345e","#01315d","#205592","#629bdb","#3595d3","#2c93d8","#248ed4","#2389d2","#1f7dc7","#1670ba","#1b6fb8","#147cc7","#6985ad","#b69b8c","#6a898f","#226a9a","#1f578a","#0e487c","#0f4777","#0e3f81","#8aa2bc","#97afd8","#5ca0cf","#709085","#937363","#a38c72","#b79d87","#c2a991","#d1b69f","#d8bea5","#dfc6ac","#e5caad","#e5ccac","#dec7ab","#e1ceb6","transparent","#dcc9bc","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#98a09d","#526466","#485d5f","#475a5a","#435655","#415555","#415252","#414f50","#445251","#485653","#4a5753","#48524f","#47514b","#474d48","#484746","#3c4553","#2e4b6d","#738eb2","#708fb2","#3a91c9","#288fd7","#288ad3","#2485cb","#207dc4","#1e7ac0","#1379be","#0a7ac3","#1b7cc2","#1969b5","#0b4e9b","#03488f","#034389","#4173a5","#7cadcf","#9599a7","#988069","#947a61","#977e68","#ac927b","#ac927c","#b79c86","#ccb198","#d6bba1","#dbc1a7","#e2c8aa","#e5ccac","#dec2a3","#ddc0a2","#decbb1","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#526363","#4d5d5b","#4c5c5a","#495956","#465653","#47544f","#4a5450","#48514b","#4b5149","#525852","#555a56","#535452","#4b504c","#52504a","#584f4a","#594e42","#7e7066","#88a9b7","#969fb0","#2b94d3","#2b8bd5","#4183bb","#83839c","#b58caf","#a58ba6","#847d8c","#705885","#104b8d","#04488d","#024b8e","#3e6faa","#a7a8ba","#9f8b78","#a78a6c","#a98f79","#a48a73","#a48973","#a18571","#b99d87","#b69a84","#bb9e86","#d0b396","#dcc3a5","#e1c7a9","#e1c7a7","#ddc2a0","#dac7b1","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#a1a5a3","#5c6967","#515e59","#4e5b56","#4b5851","#4d5650","#4d524c","#4f5047","#58544a","#625c51","#686257","#625f56","#595953","#55534b","#595449","#64564a","#7f6a58","#927760","#a28168","#9d9593","#5094c2","#3491cb","#6389b9","#807f9c","#6d7ca2","#5671a3","#265fa1","#0b5899","#125894","#457eaf","#4b7ba4","#988575","#a38669","#b3967e","#b69a82","#b99c87","#a28671","#9c826c","#a78d77","#b69a85","#c5a991","#c0a38a","#ceb299","#d4b89e","#dec0a3","#e2c6a8","#d6bea2","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#7f8482","#555e5a","#535c57","#31ceff","#545751","#5c5850","#675d52","#6e6153","#7a6a5c","#7a675a","#786a5d","#656153","#5a5a50","#8b75ff","#946bff","#9d62ff","#b39073","#c29e80","#be9a7f","#caaa89","#b6a28e","#5e86a4","#2586c7","#157fc4","#2477bd","#2669ad","#648dbc","#5285b3","#74797d","#937861","#977c64","#a1856d","#b69a84","#b99c87","#b1917c","#a38972","#927962","#a88f79","#a99078","#ceb299","#bc9c84","#c7a88c","#d6b79b","#dbbc9f","#d6b89b","#d1bba5","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#a9a9a9","#676f6a","#28d7ff","#31ceff","#3ac4ff","#43bcff","#645647","#7e6d5b","#846f5c","#877059","#85755e","#6c6658","#645e53","#746857","#89725b","#9d62ff","#bd997e","#c6a387","#c4a487","#d2b497","#ceb094","#bba48b","#cac2b8","#659dbb","#0d7abe","#237cb8","#548fb1","transparent","#ccc3b7","#a69685","#887259","#876a4f","#96775e","#a4866e","#9e7f69","#9d836b","#866d56","#9e846f","#b0927d","#bb9b83","#caaa8e","#c4a287","#cba98e","#d4b594","#d3b69b","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#28d7ff","#7f7b77","#53504a","#43bcff","#4db4ff","#56abff","#5ea1ff","#775d46","#708fff","#7987ff","#6b6057","#7a6457","#9f816c","#9d62ff","#b7977b","#c6a586","#c6a583","#c13fff","#c936ff","#d32dff","#dc23ff","transparent","transparent","#f70aff","#ff00ff","#ff09f7","transparent","transparent","transparent","transparent","transparent","#97806b","#978064","#9f866c","#7b6754","#8d735f","#a0856f","#b59780","#b5957c","#c8957d","#d4aa8d","#ccad8f","#cab298","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#28d7ff","transparent","#595b53","#42bbff","#4cb3ff","#54a9ff","#5ea1ff","#765a44","#708fff","#7986ff","#6f6758","#97816e","#b09079","#9d62ff","#be9d81","#b99375","#c9a381","#c03fff","#cfae90","transparent","transparent","transparent","#ed12ff","transparent","transparent","#ff09f6","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#89817a","#816a59","#9f846e","#a38872","#b49581","#bd9a87","#c29e88","#caaa92","#ccb39c","#cabaaa","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#28d7ff","transparent","transparent","#44bdff","#4cb3ff","#56a9ff","#5ea1ff","transparent","#708fff","#7986ff","#937f70","#937c65","#9f8169","#9d62ff","#b9977b","#b79173","#b748ff","#c13fff","#caa787","#cab49b","transparent","transparent","#ed12ff","#f70aff","#ff00ff","#ff0af6","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#7e6f65","#876a53","#8c705a","#9f826d","#927560","#ab8a76","#9e7e69","#b4937f","#c1a38d","#ceb29c","#d1c0b2","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#28d7ff","transparent","transparent","#43bcff","transparent","#56a9ff","#5da0ff","transparent","#6f8fff","#7986ff","#947e69","#917663","#a78c76","#9d62ff","#ba9a7e","#b7977b","#b748ff","#c03eff","#c6a385","#cbb29c","transparent","transparent","#ec11ff","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#74604f","#7d6251","#8c715d","#866a57","#9e836e","#ac907b","#a18470","#ab8f7a","#c3ab92","#c5b8a7","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","#28d7ff","#32ceff","#3bc5ff","#43bcff","transparent","transparent","#5ea1ff","#6799ff","#708fff","#7986ff","#7a6b5e","#8b75ff","#946bff","#9d63ff","#a65aff","#bfa58e","#b79c85","#c13fff","#ca36ff","#d32dff","#dc23ff","transparent","#ed12ff","#f709ff","#ff00ff","#ff0af6","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent","transparent"];const s=c.map(h=>h==='transparent'?'background:transparent;'+b:'color:'+h+';background:transparent;'+b);console.log("%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c %c %c %c %c %c█%c█%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c %c %c %c %c %c█%c█%c %c %c %c %c█%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c %c %c %c█%c█%c█%c %c %c %c %c█%c %c %c %c█%c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c %c█%c %c█%c█%c %c█%c %c %c %c█%c %c %c %c█%c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c %c█%c█%c %c %c %c %c█%c█%c█%c█%c %c█%c█%c█%c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c█%c %c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c \n%c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█\n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█\n%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c█%c %c█%c█\n%c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c \n%c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c \n%c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c \n%c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c \n%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c█%c %c %c %c %c %c \n%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c \n%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c \n%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c \n%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c \n%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c█%c█%c█%c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c %c \n%c %c %c %c %c█%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c█%c %c %c█%c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c %c \n%c %c %c %c %c█%c %c %c█%c█%c█%c█%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c█%c█%c█%c█%c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c \n%c %c %c %c %c█%c %c %c█%c %c█%c█%c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c█%c %c %c %c %c %c %c %c %c %c %c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c %c %c %c %c %c %c \n%c %c %c %c %c█%c█%c█%c█%c %c %c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c█%c %c█%c█%c█%c█%c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c %c \n",...s)})();
