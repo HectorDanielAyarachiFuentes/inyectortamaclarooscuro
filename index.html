@@ -481,6 +481,34 @@
         @keyframes spin-angle {
             to { --angle: 360deg; }
         }
+
+        /* --- Estilos para Desafíos Nivel APOCALIPSIS --- */
+        .apocalypse-card {
+            border: 2px solid #000000;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: rgba(0, 0, 0, 0.05);
+            grid-column: 1 / -1; /* Ocupa todo el ancho */
+        }
+        .apocalypse-card h3 {
+            color: #000000;
+            text-align: center;
+            font-size: 1.5em;
+        }
+    </style>
+    <style>
+        .rainbow-palette-test {
+            height: 100px;
+            background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #ee82ee);
+            border-radius: 4px;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 3px black;
+        }
     </style>
 </head>
 <body>
@@ -541,7 +569,7 @@
             <div class="test-card">
                 <h3>Iframe (YouTube)</h3>
                 <p>Los iframes deben ser excluidos para funcionar correctamente.</p>
-                <iframe width="100%" height="150" src="https://www.youtube.com/watch?v=9ZrqnZo_1TA&list=RD9ZrqnZo_1TA" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 4px;"></iframe>
+                <iframe width="100%" height="150" src="https://www.youtube.com/embed/9ZrqnZo_1TA?list=RD9ZrqnZo_1TA" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 4px;"></iframe>
             </div>
 
             <div class="test-card">
@@ -602,6 +630,13 @@
                 </form>
             </div>
 
+            <div class="test-card" style="grid-column: 1 / -1;">
+                <h3>Paleta de Colores Arcoíris</h3>
+                <p>Un degradado con todos los colores del arcoíris para probar la rotación de matiz (`hue-rotate`).</p>
+                <div class="rainbow-palette-test">
+                    El modo oscuro debería rotar estos colores.
+                </div>
+            </div>
         </div>
 
         <hr>
@@ -801,6 +836,26 @@
                 <div class="property-animation-test"></div>
             </div>
 
+        </div>
+
+        <hr>
+
+        <h2>Desafíos Nivel APOCALIPSIS</h2>
+        <div class="test-grid">
+            <div class="apocalypse-card">
+                <h3>HTML dentro de HTML</h3>
+                <p>El contenido dentro de un `iframe` o `object` es un documento separado y el filtro global no puede afectarlo. El script debe excluir el contenedor para evitar que se vea como un "negativo".</p>
+                <div style="display: flex; gap: 20px; margin-top: 15px;">
+                    <div style="flex: 1;">
+                        <strong>Usando &lt;iframe&gt;:</strong>
+                        <iframe src="nested.html" style="width: 100%; height: 180px; border: 1px solid #ccc; border-radius: 4px;"></iframe>
+                    </div>
+                    <div style="flex: 1;">
+                        <strong>Usando &lt;object&gt;:</strong>
+                        <object data="nested.html" type="text/html" style="width: 100%; height: 180px; border: 1px solid #ccc; border-radius: 4px;"></object>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <hr>

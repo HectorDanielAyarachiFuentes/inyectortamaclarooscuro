@@ -866,7 +866,7 @@ class AutoTheme {
 
   #generateExclusionStyles() {
     // Se separan las exclusiones para un tratamiento diferenciado.
-    const baseExclusions = ['iframe', '#theme-toggle-button', '[data-theme-exclude]', '[style*="background-image"]'];
+    const baseExclusions = ['iframe', 'object', '#theme-toggle-container', '[data-theme-exclude]', '[style*="background-image"]'];
     const userExclusions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'string');
     const allExclusionSelectors = [...new Set([...baseExclusions, ...userExclusions])];
     const fullInvertSelector = allExclusionSelectors.map(sel => `[data-theme="inverted"] ${sel}`).join(',\n');
@@ -1151,15 +1151,87 @@ class AutoTheme {
   }
 
   /**
+   * Busca contextos anidados (iframes, objects) del mismo origen y les inyecta el script de tema.
+   */
+  #syncNestedContexts() {
+    const injectScript = (element, doc) => {
+      // Comprobar si el script ya ha sido inyectado
+      if (doc.querySelector('script[src*="theme-generator.js"]')) {
+        return;
+      }
+
+      console.log('AutoTheme: Same-origin context detected. Injecting theme script.', element);
+
+      // Encontrar el tag <script> que cargó este mismo script
+      const thisScriptTag = document.querySelector('script[src*="theme-generator.js"][type="module"]');
+      if (thisScriptTag) {
+        const newScriptTag = doc.createElement('script');
+        newScriptTag.src = thisScriptTag.src;
+        newScriptTag.type = 'module';
+        doc.head.appendChild(newScriptTag);
+      }
+    };
+
+    const trySync = (element) => {
+      try {
+        // contentDocument para <object>, contentWindow.document para <iframe>
+        const doc = element.contentDocument || element.contentWindow?.document;
+        if (doc && doc.readyState === 'complete') {
+          injectScript(element, doc);
+        } else if (doc) {
+          // Si el documento no está listo, esperar al evento 'load'.
+          element.addEventListener('load', () => injectScript(element, doc), { once: true });
+        }
+      } catch (e) {
+        // Es un contexto de origen cruzado, lo ignoramos.
+      }
+    };
+
+    document.querySelectorAll('iframe, object').forEach(trySync);
+  }
+  /**
    * Método de inicialización principal. Se llama desde el constructor.
    */
   #init() {
+    const isInsideIframe = window.self !== window.top;
+// Pega este código en la consola de las herramientas de desarrollo y presiona Enter.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+    if (registrations.length === 0) {
+      console.log('No hay Service Workers registrados. El problema puede ser otro (ej. una extensión).');
+    }
+    for(let registration of registrations) {
+      registration.unregister();
+      console.log('Service Worker desregistrado:', registration);
+    }
+    if (registrations.length > 0) {
+        console.log('¡Listo! Recarga la página.');
+    }
+  });
+} else {
+    console.log('Tu navegador no soporta Service Workers.');
+}
+
     // Inyecta los estilos, el área de accesibilidad y el botón.
+    // Si está en un iframe, no crea un nuevo botón, solo gestiona el tema.
     this.#injectBaseStyles();
     this.#injectLiveRegion();
-    this.#createToggleButton();
+    if (!isInsideIframe) {
+      this.#createToggleButton();
+    }
     this.#applyFunctionalExclusions(); // Aplicar exclusiones funcionales e inteligentes al inicio
     this.#initializeModalObserver();
+
+    if (!isInsideIframe) {
+      this.#syncNestedContexts(); // La ventana principal busca iframes para sincronizar.
+      // El padre escucha peticiones de estado de los hijos.
+      window.addEventListener('message', (event) => {
+        if (event.source && event.data === 'request-theme-state') {
+          console.log('AutoTheme (parent): Child iframe requested theme state. Responding.', event.source);
+          event.source.postMessage({ type: 'theme-state', isDark: this.#isDark }, event.origin);
+        }
+      });
+    }
 
     // Determina el estado inicial del tema de la página.
     this.#isPageInitiallyDark = this.#isColorDark(this.#getEffectiveBackgroundColor());
@@ -1172,6 +1244,25 @@ class AutoTheme {
 
     this.setTheme(initialThemeIsDark);
     
+    // Si estamos dentro de un iframe, nos comunicamos con el padre.
+    if (isInsideIframe) {
+      // 1. Escuchamos los cambios de tema futuros.
+      window.parent.addEventListener('themechange', (e) => {
+        console.log('AutoTheme (in iframe): Syncing with parent theme.', e.detail);
+        this.setTheme(e.detail.isDark, false); // El cambio no es manual
+      });
+
+      // 2. Escuchamos la respuesta del padre a nuestra petición inicial.
+      window.addEventListener('message', (event) => {
+        if (event.source === window.parent && event.data.type === 'theme-state') {
+          this.setTheme(event.data.isDark, false);
+        }
+      });
+
+      // 3. Pedimos el estado inicial al padre.
+      window.parent.postMessage('request-theme-state', '*');
+    }
+
     // Escucha los cambios en la preferencia del sistema operativo.
     let debounceTimer;
     systemPreference.addEventListener('change', (e) => {
