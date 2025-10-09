@@ -174,6 +174,144 @@
             /* El color se hereda y debe ser invertido por el script */
             color: #333;
         }
+
+        /* --- Estilos para Desafíos Nivel Experto --- */
+        ::selection {
+            background-color: #ffc107; /* Amarillo para selección */
+            color: #333;
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 5px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        .blend-mode-container {
+            position: relative;
+            height: 120px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .blend-box {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            mix-blend-mode: screen; /* Modo de fusión que puede dar problemas */
+        }
+        .blend-box.red { background-color: #ff4136; top: 10px; left: 20px; }
+        .blend-box.blue { background-color: #0074d9; top: 30px; left: 60px; }
+
+        .pre-filtered-test {
+            width: 100%;
+            height: 80px;
+            background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff);
+            filter: grayscale(1) blur(1px); /* Filtro preexistente */
+            border-radius: 4px;
+        }
+
+        .custom-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .custom-table caption {
+            caption-side: bottom;
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 8px;
+        }
+        .custom-table th, .custom-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .custom-table thead { background-color: #f2f2f2; }
+        .custom-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+
+        /* --- Estilos para Desafíos Nivel Pesadilla --- */
+        .nightmare-card {
+            border: 1px dashed #ff4136; /* Borde rojo para destacar */
+            padding: 15px;
+            border-radius: 5px;
+            background-color: rgba(255, 65, 54, 0.05);
+        }
+        .nightmare-card h3 {
+            color: #b22222;
+        }
+
+        .backdrop-container {
+            position: relative;
+            height: 150px;
+            background-image: url('https://github.com/HectorDanielAyarachiFuentes/fotos-dulce/blob/main/Fotos-Dulce/Dulce-sentada.jpg?raw=true');
+            background-size: cover;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .backdrop-element {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            bottom: 20px;
+            background-color: rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 4px;
+            -webkit-backdrop-filter: blur(5px); /* Para Safari */
+            backdrop-filter: blur(5px); /* El desafío principal */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #111;
+            font-weight: bold;
+            text-shadow: 0 0 5px white;
+        }
+
+        .sticky-container {
+            height: 150px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .sticky-header {
+            position: -webkit-sticky; /* Para Safari */
+            position: sticky;
+            top: 0;
+            background-color: #e9ecef;
+            padding: 8px;
+            font-weight: bold;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .css-animation-test {
+            width: 60px;
+            height: 60px;
+            background-color: #9b59b6;
+            animation: pulse-and-rotate 3s infinite ease-in-out;
+        }
+        @keyframes pulse-and-rotate {
+            0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            50% { transform: scale(0.8) rotate(180deg); opacity: 0.7; }
+        }
+
+        .clip-path-test {
+            --clip-bg-color: #2ecc71; /* Variable CSS para el color */
+            width: 100%;
+            height: 80px;
+            background-color: var(--clip-bg-color);
+            clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+        }
     </style>
 </head>
 <body>
@@ -234,7 +372,7 @@
             <div class="test-card">
                 <h3>Iframe (YouTube)</h3>
                 <p>Los iframes deben ser excluidos para funcionar correctamente.</p>
-                <iframe width="100%" height="150" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 4px;"></iframe>
+                <iframe width="100%" height="150" src="https://www.youtube.com/watch?v=9ZrqnZo_1TA&list=RD9ZrqnZo_1TA" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 4px;"></iframe>
             </div>
 
             <div class="test-card">
@@ -295,6 +433,108 @@
                 </form>
             </div>
 
+        </div>
+
+        <hr>
+
+        <h2>Desafíos Nivel Experto</h2>
+        <div class="test-grid">
+
+            <div class="test-card">
+                <h3>Shadow DOM</h3>
+                <p>Este componente usa Shadow DOM. El filtro global debería afectarlo, pero los estilos internos están encapsulados.</p>
+                <shadow-dom-test></shadow-dom-test>
+            </div>
+
+            <div class="test-card">
+                <h3><code>mix-blend-mode</code></h3>
+                <p>La inversión de color puede causar resultados extraños con los modos de fusión.</p>
+                <div class="blend-mode-container">
+                    <div class="blend-box red"></div>
+                    <div class="blend-box blue"></div>
+                </div>
+            </div>
+
+            <div class="test-card">
+                <h3>Filtro CSS Preexistente</h3>
+                <p>Este elemento ya tiene `filter: grayscale`. El filtro de inversión se apilará sobre él.</p>
+                <div class="pre-filtered-test"></div>
+            </div>
+
+            <div class="test-card">
+                <h3>Tabla Compleja</h3>
+                <p>Las tablas con bordes y colores de fila alternos son un buen reto.</p>
+                <table class="custom-table">
+                    <caption>Lista de usuarios</caption>
+                    <thead>
+                        <tr><th>ID</th><th>Nombre</th><th>Rol</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1</td><td>Ana</td><td>Admin</td></tr>
+                        <tr><td>2</td><td>Luis</td><td>Editor</td></tr>
+                        <tr><td>3</td><td>Eva</td><td>Lector</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="test-card">
+                <h3>Formularios (Deshabilitados)</h3>
+                <p>Los elementos deshabilitados tienen estilos propios del navegador que pueden ser difíciles de invertir.</p>
+                <form onsubmit="event.preventDefault();">
+                    <input type="text" placeholder="No puedes escribir aquí" disabled style="width: 90%; margin-bottom: 10px;"><br>
+                    <button type="button" disabled>Botón Deshabilitado</button>
+                </form>
+            </div>
+
+        </div>
+
+        <hr>
+
+        <h2>Desafíos Nivel Pesadilla</h2>
+        <div class="test-grid">
+
+            <div class="nightmare-card">
+                <h3><code>backdrop-filter</code></h3>
+                <p>Un elemento con fondo semitransparente que desenfoca la imagen de detrás. La interacción de filtros es la pesadilla.</p>
+                <div class="backdrop-container">
+                    <div class="backdrop-element">Soy un fantasma</div>
+                </div>
+            </div>
+
+            <div class="nightmare-card">
+                <h3><code>position: sticky</code></h3>
+                <p>Haz scroll dentro de este cuadro. La cabecera debe "pegarse" arriba, probando el repintado con filtro.</p>
+                <div class="sticky-container">
+                    <div class="sticky-header">Soy Pegajoso</div>
+                    <p style="padding: 10px;">Contenido de prueba para generar scroll. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod non, mi.</p>
+                </div>
+            </div>
+
+            <div class="nightmare-card">
+                <h3>Animación CSS</h3>
+                <p>Este cuadro tiene una animación de `transform` y `opacity`. ¿Hay lag o glitches al cambiar de tema?</p>
+                <div class="css-animation-test"></div>
+            </div>
+
+            <div class="nightmare-card">
+                <h3><code>&lt;details&gt;</code> y <code>&lt;summary&gt;</code></h3>
+                <p>El marcador de flecha es un elemento nativo del navegador, difícil de invertir.</p>
+                <details>
+                    <summary>Haz clic para expandir</summary>
+                    <p>Este es el contenido oculto. ¡Sorpresa!</p>
+                </details>
+            </div>
+
+            <div class="nightmare-card">
+                <h3><code>clip-path</code> y Variables</h3>
+                <p>Una forma compleja cuyo color viene de una variable CSS. El filtro debe respetar la forma.</p>
+                <div class="clip-path-test"></div>
+            </div>
+
+            <div class="nightmare-card">
+                <h3><code>writing-mode</code></h3>
+                <p style="writing-mode: vertical-rl; text-orientation: mixed; height: 120px; margin: auto;">Este texto es vertical.</p>
+            </div>
         </div>
 
         <hr>
@@ -368,6 +608,30 @@
             ctx.fillStyle = 'blue';
             ctx.font = '16px Arial';
             ctx.fillText('Hola Canvas', 70, 40);
+
+            // --- Lógica para el Web Component (SHADOW DOM) ---
+            class ShadowDomTest extends HTMLElement {
+                constructor() {
+                    super();
+                    const shadow = this.attachShadow({ mode: 'open' });
+                    
+                    const wrapper = document.createElement('div');
+                    wrapper.setAttribute('class', 'wrapper');
+                    wrapper.innerHTML = `
+                        <p>¡Estoy dentro del Shadow DOM!</p>
+                        <button>Botón Interno</button>
+                    `;
+
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .wrapper { background-color: #e0f7fa; color: #00796b; padding: 10px; border-radius: 4px; border: 1px dashed #00796b; }
+                        button { background-color: #00796b; color: white; border: none; padding: 5px 10px; border-radius: 3px; }
+                    `;
+                    shadow.appendChild(style);
+                    shadow.appendChild(wrapper);
+                }
+            }
+            customElements.define('shadow-dom-test', ShadowDomTest);
         });
     </script>
 <script type="module" src="theme-generator.js"></script>

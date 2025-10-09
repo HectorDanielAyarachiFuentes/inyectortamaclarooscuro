@@ -879,7 +879,9 @@ class AutoTheme {
       ${fullInvertSelector} { filter: invert(1) hue-rotate(180deg); }
 
       /* Tratamiento "inteligente" para imágenes y videos: se reduce su brillo en lugar de excluirlos. */
-      [data-theme="inverted"] img, [data-theme="inverted"] video { filter: brightness(0.8) contrast(0.95); }
+      /* Primero se aplica el filtro inverso para neutralizar el efecto del <html>, y LUEGO se ajusta el brillo/contraste. */
+      [data-theme="inverted"] img, 
+      [data-theme="inverted"] video { filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.95); }
     `;
   }
 
@@ -890,26 +892,39 @@ class AutoTheme {
   #applyFunctionalExclusions() {
     const exclusionFunctions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'function');
     
-    document.querySelectorAll('*').forEach(el => {
+    // Usamos un bucle for tradicional porque querySelectorAll devuelve una lista estática.
+    // Si añadiéramos un atributo que coincide con el selector, podríamos entrar en bucles infinitos con forEach en algunas implementaciones.
+    const allElements = document.querySelectorAll('body *:not([data-theme-exclude])');
+
+    for (let i = 0; i < allElements.length; i++) {
+      const el = allElements[i];
+
+      // Detección de imágenes de fondo desde CSS
+      const computedStyle = window.getComputedStyle(el);
+      if (computedStyle.backgroundImage && computedStyle.backgroundImage !== 'none') {
+        // Excluimos el elemento si tiene una imagen de fondo que no sea un degradado.
+        if (!computedStyle.backgroundImage.includes('gradient')) {
+          el.setAttribute('data-theme-exclude', 'bg-image-auto');
+          continue; // Pasamos al siguiente elemento una vez excluido.
+        }
+      }
+
       // Exclusiones personalizadas por el usuario
       if (exclusionFunctions.length > 0 && exclusionFunctions.some(fn => fn(el))) {
         el.setAttribute('data-theme-exclude', '');
+        continue;
       }
 
       // Detección "inteligente" de iconos SVG
-      if (el.tagName.toLowerCase() === 'svg' && !el.hasAttribute('data-theme-exclude')) {
-        // Un icono suele tener un solo <path> o un número bajo de ellos, y no define colores complejos.
+      if (el.tagName.toLowerCase() === 'svg') {
         const pathCount = el.querySelectorAll('path').length;
         const hasComplexFills = el.querySelector('[fill*="url("], [fill*="gradient"]');
-        
         if (pathCount > 0 && pathCount < 5 && !hasComplexFills) {
-          // Es probable que sea un icono. Lo tratamos como texto.
-          // Al añadirle este atributo, el filtro principal no lo afectará, pero nuestras variables CSS sí.
           el.style.color = 'var(--color-text)';
           el.setAttribute('data-theme-exclude', 'svg-icon');
         }
       }
-    });
+    }
   }
 
   #generateUIAndAnimationStyles() {
