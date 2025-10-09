@@ -110,10 +110,10 @@ Este script ha sido probado y optimizado para manejar una gran cantidad de casos
 
 Este proyecto está dedicado a mi bella Dulce.
 
-```
+![Mi bella Dulce](https://github.com/HectorDanielAyarachiFuentes/inyectortamaclarooscuro/blob/main/Img-dm/Dulcehermosa.jpg?raw=true)
 
 
-```
+
 
 ---
 
