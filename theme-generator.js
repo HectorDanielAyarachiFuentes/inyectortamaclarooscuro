@@ -1103,6 +1103,20 @@ class AutoTheme {
    * Los modales se excluyen automáticamente del filtro de inversión para que se muestren correctamente.
    */
   #initializeModalObserver() {
+    // Estrategia para la nueva Popover API
+    const handlePopoverToggle = (event) => {
+      const popover = event.target;
+      if (event.newState === 'open' && !popover.hasAttribute('data-theme-exclude')) {
+        console.log('AutoTheme: Popover API element detected. Applying exclusion.', popover);
+        popover.setAttribute('data-theme-exclude', 'popover-auto');
+      }
+    };
+
+    // Aplicar a popovers ya existentes en el DOM
+    document.querySelectorAll('[popover]').forEach(popover => {
+      popover.addEventListener('toggle', handlePopoverToggle);
+    });
+
     this.#modalObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
@@ -1119,6 +1133,11 @@ class AutoTheme {
             if (isLikelyModal && !node.hasAttribute('data-theme-exclude')) {
               console.log('AutoTheme: Modal-like element detected. Applying exclusion.', node);
               node.setAttribute('data-theme-exclude', 'modal-auto');
+            }
+
+            // Si el nuevo nodo es un popover (o contiene popovers), añadir el listener.
+            if (node.hasAttribute('popover')) {
+              node.addEventListener('toggle', handlePopoverToggle);
             }
           });
         }
