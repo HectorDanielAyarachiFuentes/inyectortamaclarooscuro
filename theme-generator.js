@@ -666,6 +666,26 @@ class AutoTheme {
     }
   }
 
+  /**
+   * Crea una partícula visual en una posición específica para el efecto de estela.
+   * @param {number} x - Coordenada X.
+   * @param {number} y - Coordenada Y.
+   */
+  #createParticle(x, y) {
+    const particle = document.createElement('span');
+    particle.classList.add('theme-drag-particle');
+    // Asigna una clase de fuego o hielo según el tema actual
+    particle.classList.add(this.#isDark ? 'particle-ice' : 'particle-fire');
+    
+    Object.assign(particle.style, {
+      left: `${x}px`,
+      top: `${y}px`,
+    });
+
+    document.body.appendChild(particle);
+    // Elimina la partícula del DOM cuando su animación termina
+    particle.addEventListener('animationend', () => particle.remove());
+  }
   #togglePermanentTriggerVisibility(hide) {
       this.#isTriggerPermanentlyHidden = hide;
       if (hide) {
@@ -695,6 +715,7 @@ class AutoTheme {
   #makeDraggable(element) {
     let isDragging = false;
     let offsetX, offsetY;
+    let throttleTimer; // Para limitar la creación de partículas
 
     const onMouseDown = (e) => {
       if (e.button !== 0) return;
@@ -713,10 +734,23 @@ class AutoTheme {
 
     const onMouseMove = (e) => {
       if (!isDragging) return;
+
+      // Limita la creación de partículas para un mejor rendimiento
+      if (!throttleTimer) {
+        throttleTimer = setTimeout(() => {
+          // Crea la partícula en el centro del botón
+          const rect = element.getBoundingClientRect();
+          this.#createParticle(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          throttleTimer = null;
+        }, 20); // Crea una partícula como máximo cada 20ms
+      }
+
       const x = Math.max(0, Math.min(window.innerWidth - element.offsetWidth, e.clientX - offsetX));
       const y = Math.max(0, Math.min(window.innerHeight - element.offsetHeight, e.clientY - offsetY));
       element.style.left = `${x}px`;
       element.style.top = `${y}px`;
+      element.style.bottom = 'auto'; // Anula bottom/right si se movió
+      element.style.right = 'auto';
     };
 
     const onMouseUp = () => {
@@ -767,7 +801,8 @@ class AutoTheme {
     styleElement.textContent = `
       ${this.#generateThemeStyles()}
       ${this.#generateExclusionStyles()}
-      ${this.#generateAnimationStyles()}
+      /* Estilos de animación y elementos UI */
+      ${this.#generateUIAndAnimationStyles()}
     `;
     document.head.appendChild(styleElement);
   }
@@ -877,7 +912,7 @@ class AutoTheme {
     });
   }
 
-  #generateAnimationStyles() {
+  #generateUIAndAnimationStyles() {
     const { transitionTimingFunction } = this.#buttonOptions;
     return `
       @keyframes rotate-icon {
@@ -975,6 +1010,38 @@ class AutoTheme {
         }
       }
 
+      /* --- Estilos y Animación para Partículas de Arrastre --- */
+      .theme-drag-particle {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 9998; /* Justo debajo del botón */
+        animation: particle-fade-out 0.7s ease-out forwards;
+      }
+
+      @keyframes particle-fade-out {
+        from {
+          transform: scale(1);
+          opacity: 0.8;
+        }
+        to {
+          transform: scale(0);
+          opacity: 0;
+        }
+      }
+
+      /* Partículas de fuego para el tema claro */
+      .theme-drag-particle.particle-fire {
+        background: #ffc94d;
+        box-shadow: 0 0 5px #ffc94d, 0 0 10px #ffc94d, 0 0 15px #ff9a2a;
+      }
+      /* Partículas de hielo para el tema oscuro */
+      .theme-drag-particle.particle-ice {
+        background: #a7d8ff;
+        box-shadow: 0 0 5px #a7d8ff, 0 0 10px #a7d8ff, 0 0 15px #00aaff;
+      }
       /* --- Estilos del Tutorial --- */
       .tutorial-active .theme-satellite-button { display: none; }
       /* Pausar órbita durante el tutorial */
