@@ -495,6 +495,41 @@
             text-align: center;
             font-size: 1.5em;
         }
+
+        /* --- Estilos para Desafíos Nivel Ultra Maldad --- */
+        .ultra-maldad-card {
+            border: 2px dashed #4b0082; /* Indigo */
+            padding: 15px;
+            border-radius: 5px;
+            background-color: rgba(75, 0, 130, 0.05);
+        }
+        .ultra-maldad-card h3 {
+            color: #3a006a;
+        }
+
+        #myDialog {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        #myDialog::backdrop {
+            background-color: rgba(0, 0, 0, 0.6);
+            /* El filtro de inversión debería afectar este backdrop */
+        }
+
+        .shape-float {
+            float: left;
+            width: 60px;
+            height: 60px;
+            margin: 0 15px 5px 0;
+            border-radius: 50%;
+            background-color: #4b0082;
+            shape-outside: circle(50%);
+        }
+
+        .svg-filter-test {
+            width: 100%; border-radius: 4px; filter: url(#svg-distortion);
+        }
     </style>
     <style>
         .rainbow-palette-test {
@@ -840,6 +875,52 @@
 
         <hr>
 
+        <h2>Desafíos Nivel Ultra Maldad</h2>
+        <div class="test-grid">
+
+            <div class="ultra-maldad-card">
+                <h3>Elemento <code>&lt;dialog&gt;</code> nativo</h3>
+                <p>El nuevo elemento <code>&lt;dialog&gt;</code> y su pseudo-elemento <code>::backdrop</code>. ¿Se invierte correctamente el fondo?</p>
+                <button id="showDialogBtn">Mostrar Diálogo</button>
+                <dialog id="myDialog">
+                    <h4>Soy un diálogo nativo</h4>
+                    <p>Mi fondo (backdrop) es un pseudo-elemento especial.</p>
+                    <button id="hideDialogBtn">Cerrar</button>
+                </dialog>
+            </div>
+
+            <div class="ultra-maldad-card">
+                <h3><code>shape-outside</code></h3>
+                <p>
+                    <span class="shape-float"></span>
+                    Este texto debería fluir elegantemente alrededor del círculo flotante. La inversión de color puede causar problemas de repintado en el antialiasing del texto que se ajusta a la forma. Es una prueba de fuego para el motor de renderizado de texto del navegador bajo un filtro activo.
+                </p>
+            </div>
+
+            <div class="ultra-maldad-card">
+                <h3>Filtros SVG</h3>
+                <p>Esta imagen tiene un filtro SVG aplicado (<code>feTurbulence</code> y <code>feDisplacementMap</code>) para un efecto de distorsión. ¿Cómo interactúa con el filtro CSS de inversión?</p>
+                <svg width="0" height="0">
+                    <filter id="svg-distortion">
+                        <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="turbulence" />
+                        <feDisplacementMap in="SourceGraphic" in2="turbulence" scale="15" xChannelSelector="R" yChannelSelector="G" />
+                    </filter>
+                </svg>
+                <img src="https://github.com/HectorDanielAyarachiFuentes/fotos-dulce/blob/main/Fotos-Dulce/Dulce-3.jpg?raw=true" alt="Imagen con filtro SVG" class="svg-filter-test">
+            </div>
+
+            <div class="ultra-maldad-card">
+                <h3>Custom Highlight API</h3>
+                <p>
+                    Usa el botón para resaltar <span class="highlight-target">ciertas palabras</span> en este párrafo usando la nueva API de CSS. ¿El color del resaltado se invierte correctamente?
+                </p>
+                <button id="highlightApiBtn">Resaltar Texto</button>
+            </div>
+
+        </div>
+
+        <hr>
+
         <h2>Desafíos Nivel APOCALIPSIS</h2>
         <div class="test-grid">
             <div class="apocalypse-card">
@@ -966,6 +1047,37 @@
                     }
                     registerPaint('checkerboard', CheckerboardPainter);
                 `);
+            }
+        });
+
+        // --- Lógica para Desafíos Nivel Ultra Maldad ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Lógica para el <dialog>
+            const dialog = document.getElementById('myDialog');
+            const showDialogBtn = document.getElementById('showDialogBtn');
+            const hideDialogBtn = document.getElementById('hideDialogBtn');
+            showDialogBtn.addEventListener('click', () => dialog.showModal());
+            hideDialogBtn.addEventListener('click', () => dialog.close());
+
+            // Lógica para la Custom Highlight API
+            const highlightBtn = document.getElementById('highlightApiBtn');
+            if ('highlights' in CSS) {
+                const highlight = new Highlight();
+                CSS.highlights.set('my-custom-highlight', highlight);
+
+                highlightBtn.addEventListener('click', () => {
+                    const targetSpans = document.querySelectorAll('.highlight-target');
+                    if (highlight.size > 0) {
+                        highlight.clear();
+                        highlightBtn.textContent = 'Resaltar Texto';
+                    } else {
+                        targetSpans.forEach(span => highlight.add(new StaticRange({ startContainer: span.firstChild, startOffset: 0, endContainer: span.firstChild, endOffset: span.textContent.length })));
+                        highlightBtn.textContent = 'Quitar Resaltado';
+                    }
+                });
+            } else {
+                highlightBtn.disabled = true;
+                highlightBtn.textContent = 'API no soportada';
             }
         });
     </script>

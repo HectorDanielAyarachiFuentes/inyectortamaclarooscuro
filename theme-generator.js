@@ -833,6 +833,11 @@ class AutoTheme {
       [data-theme="inverted"] {
         --color-surface: ${darkColors.surface ?? '#2c3e50'};
         --color-text: ${darkColors.text ?? '#ffffff'};
+        /* Estilos para la Custom Highlight API en modo oscuro */
+        ::highlight(my-custom-highlight) {
+            background-color: #a855f7; /* Purple-400 */
+            color: #111827; /* Gray-900 */
+        }
       }
 
       [data-theme="inverted"] {
@@ -849,6 +854,12 @@ class AutoTheme {
         filter: invert(1) hue-rotate(180deg) contrast(${contrastValue}) brightness(${brightnessValue});
         /* Se establece un fondo blanco para que al invertirlo se vuelva negro. */
         background-color: #fff;
+      }
+
+      /* Estilos para la Custom Highlight API en modo claro */
+      ::highlight(my-custom-highlight) {
+        background-color: #d8b4fe; /* Purple-300 */
+        color: #1f2937; /* Gray-800 */
       }
     `;
   }
@@ -1398,7 +1409,7 @@ class GradientSelector {
             top: '0',
             width: '100%',
             height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.6)',
+            backgroundColor: 'rgba(0,0,0,0.8)',
             overflowY: 'auto'
         });
 
@@ -1491,7 +1502,7 @@ class GradientSelector {
     #updateModalTheme() {
         this.#modalContent.style.backgroundColor = 'var(--color-surface)';
         this.#modalContent.style.color = 'var(--color-text)';
-        this.#modalContent.style.border = '1px solid rgba(var(--color-text-rgb), 0.2)';
+        this.#modalContent.style.border = '1px solid rgba(0, 0, 0, 0.2)';
         this.#removeButton.style.backgroundColor = 'var(--color-accent, #007bff)';
         this.#removeButton.style.color = 'var(--color-surface)';
         this.#closeModalButton.style.color = 'rgba(var(--color-text-rgb), 0.5)';
