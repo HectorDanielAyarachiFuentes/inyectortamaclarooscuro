@@ -838,6 +838,11 @@ class AutoTheme {
             background-color: #a855f7; /* Purple-400 */
             color: #111827; /* Gray-900 */
         }
+        /* El ::backdrop del <dialog> está en la top-layer y no es afectado por el filtro del <html>.
+           Por lo tanto, necesita su propia regla de inversión manual. */
+        ::backdrop {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
       }
 
       [data-theme="inverted"] {
@@ -860,6 +865,15 @@ class AutoTheme {
       ::highlight(my-custom-highlight) {
         background-color: #d8b4fe; /* Purple-300 */
         color: #1f2937; /* Gray-800 */
+      }
+
+      /* Los elementos en la top-layer como <dialog> no heredan el filtro.
+         Debemos aplicarles los colores del tema directamente usando variables CSS. */
+      dialog, [popover] {
+        background-color: var(--color-surface);
+        color: var(--color-text);
+        border: 1px solid rgba(var(--color-text-rgb), 0.2);
+        transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
       }
     `;
   }
@@ -1257,15 +1271,16 @@ if ('serviceWorker' in navigator) {
     
     // Si estamos dentro de un iframe, nos comunicamos con el padre.
     if (isInsideIframe) {
+      const parentWindow = window.parent;
       // 1. Escuchamos los cambios de tema futuros.
-      window.parent.addEventListener('themechange', (e) => {
+      parentWindow.addEventListener('themechange', (e) => {
         console.log('AutoTheme (in iframe): Syncing with parent theme.', e.detail);
         this.setTheme(e.detail.isDark, false); // El cambio no es manual
       });
 
       // 2. Escuchamos la respuesta del padre a nuestra petición inicial.
       window.addEventListener('message', (event) => {
-        if (event.source === window.parent && event.data.type === 'theme-state') {
+        if (event.source === parentWindow && event.data.type === 'theme-state') {
           this.setTheme(event.data.isDark, false);
         }
       });
