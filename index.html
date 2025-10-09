@@ -312,6 +312,175 @@
             background-color: var(--clip-bg-color);
             clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
         }
+
+        /* --- Estilos para Desafíos Nivel Ultra Hard --- */
+        .ultra-hard-card {
+            border: 2px solid #663399; /* Rebecca Purple */
+            padding: 15px;
+            border-radius: 5px;
+            background-color: rgba(102, 51, 153, 0.05);
+        }
+        .ultra-hard-card h3 {
+            color: #4d2673;
+        }
+
+        .scene-3d {
+            width: 100px;
+            height: 100px;
+            perspective: 400px;
+            margin: 20px auto;
+        }
+        .cube-3d {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            animation: rotate-cube 8s infinite linear;
+        }
+        .cube-face {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border: 1px solid #333;
+            font-size: 12px;
+            text-align: center;
+            line-height: 100px;
+            background-color: rgba(0, 123, 255, 0.7);
+            color: white;
+        }
+        .face-front  { transform: rotateY(  0deg) translateZ(50px); }
+        .face-back   { transform: rotateY(180deg) translateZ(50px); }
+        .face-right  { transform: rotateY( 90deg) translateZ(50px); }
+        .face-left   { transform: rotateY(-90deg) translateZ(50px); }
+        .face-top    { transform: rotateX( 90deg) translateZ(50px); }
+        .face-bottom { transform: rotateX(-90deg) translateZ(50px); }
+
+        @keyframes rotate-cube {
+            from { transform: rotateX(0deg) rotateY(0deg); }
+            to   { transform: rotateX(360deg) rotateY(360deg); }
+        }
+
+        .mask-image-test {
+            width: 100%;
+            height: 100px;
+            background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+            -webkit-mask-image: linear-gradient(to right, transparent 0%, black 50%, transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0%, black 50%, transparent 100%);
+        }
+
+        .scroll-animation-container {
+            height: 150px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            /* Define un nombre para la línea de tiempo de scroll */
+            scroll-timeline-name: --scroll-timeline;
+        }
+        .scroll-progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        .scroll-progress-bar-inner {
+            height: 100%;
+            background-color: #007bff;
+            border-radius: 4px;
+            /* Vincula la animación a la línea de tiempo de scroll */
+            animation: progress-scroll linear forwards;
+            animation-timeline: --scroll-timeline;
+        }
+        @keyframes progress-scroll {
+            from { width: 0%; }
+            to   { width: 100%; }
+        }
+
+        .houdini-paint-test {
+            width: 100%;
+            height: 100px;
+            /* Llama al worklet de pintura. El filtro no puede afectar esto. */
+            background-image: paint(checkerboard);
+        }
+
+        /* --- Estilos para Desafíos Nivel DIOS --- */
+        .god-level-card {
+            border: 2px solid #ff00ff; /* Magenta para el nivel Dios */
+            padding: 15px;
+            border-radius: 5px;
+            background-color: rgba(255, 0, 255, 0.05);
+            overflow: hidden; /* Para contener elementos que se salen */
+        }
+        .god-level-card h3 {
+            color: #990099;
+        }
+
+        /* Popover API */
+        #my-popover {
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        /* Container Queries */
+        .cq-container {
+            container-type: inline-size;
+            container-name: card-container;
+            resize: horizontal;
+            overflow: auto;
+            border: 1px dashed #ccc;
+            padding: 10px;
+        }
+        .cq-child {
+            background-color: #d1e7dd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        @container card-container (min-width: 200px) {
+            .cq-child {
+                background-color: #f8d7da;
+                font-weight: bold;
+            }
+        }
+
+        /* Offset Path */
+        .offset-path-container {
+            position: relative;
+            height: 100px;
+        }
+        .offset-path-element {
+            width: 20px;
+            height: 20px;
+            background: #ffc107;
+            border-radius: 50%;
+            offset-path: path('M10,80 Q50,10 90,80 T170,80');
+            animation: move-along-path 4s infinite ease-in-out;
+        }
+        @keyframes move-along-path {
+            from { offset-distance: 0%; }
+            to { offset-distance: 100%; }
+        }
+
+        /* color-mix() */
+        .color-mix-test {
+            height: 50px;
+            background-color: color-mix(in srgb, #3498db 40%, #f1c40f);
+            border-radius: 4px;
+        }
+
+        /* @property */
+        @property --angle {
+            syntax: '<angle>'; inherits: false; initial-value: 0deg;
+        }
+        .property-animation-test {
+            height: 80px;
+            background: conic-gradient(from var(--angle), #ff5733, #33ff57, #3357ff, #ff5733);
+            animation: spin-angle 3s infinite linear;
+            border-radius: 50%;
+        }
+        @keyframes spin-angle {
+            to { --angle: 360deg; }
+        }
     </style>
 </head>
 <body>
@@ -539,6 +708,103 @@
 
         <hr>
 
+        <h2>Desafíos Nivel Ultra Hard</h2>
+        <div class="test-grid">
+
+            <div class="ultra-hard-card">
+                <h3>Transformaciones 3D</h3>
+                <p>Un cubo 3D animado. Prueba de fuego para el rendimiento y los contextos de apilamiento.</p>
+                <div class="scene-3d">
+                    <div class="cube-3d">
+                        <div class="cube-face face-front">Front</div>
+                        <div class="cube-face face-back">Back</div>
+                        <div class="cube-face face-right">Right</div>
+                        <div class="cube-face face-left">Left</div>
+                        <div class="cube-face face-top">Top</div>
+                        <div class="cube-face face-bottom">Bottom</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ultra-hard-card">
+                <h3><code>mask-image</code></h3>
+                <p>Este degradado está enmascarado. El filtro debe respetar las áreas visibles y semi-transparentes.</p>
+                <div class="mask-image-test"></div>
+            </div>
+
+            <div class="ultra-hard-card">
+                <h3>Animación por Scroll</h3>
+                <p>Haz scroll en este cuadro. La barra de progreso se anima con CSS `animation-timeline`.</p>
+                <div class="scroll-animation-container">
+                    <div class="scroll-progress-bar">
+                        <div class="scroll-progress-bar-inner"></div>
+                    </div>
+                    <p style="padding: 10px; height: 300px;">Mucho...<br>...contenido...<br>...para...<br>...hacer...<br>...scroll.</p>
+                </div>
+            </div>
+
+            <div class="ultra-hard-card">
+                <h3>CSS Houdini (Paint API)</h3>
+                <p>Este fondo de tablero de ajedrez se dibuja con JS. El filtro global no puede invertirlo.</p>
+                <div class="houdini-paint-test"></div>
+            </div>
+
+            <div class="ultra-hard-card">
+                <h3><code>will-change</code></h3>
+                <p>Este elemento usa `will-change`, una optimización que puede causar glitches con filtros.</p>
+                <div style="will-change: transform; background-color: #ff6347; color: white; padding: 10px; border-radius: 4px;">Paso el ratón por encima para activar la transición.</div>
+            </div>
+
+        </div>
+
+        <hr>
+
+        <h2>Desafíos Nivel DIOS</h2>
+        <div class="test-grid">
+
+            <div class="god-level-card">
+                <h3>Popover API</h3>
+                <p>Un elemento nativo en la capa superior. ¿Lo detecta el script como un modal?</p>
+                <button popovertarget="my-popover">Mostrar Popover</button>
+                <div id="my-popover" popover>
+                    <h4>¡Soy un Popover!</h4>
+                    <p>Me renderizo en la `@top-layer`.</p>
+                    <button popovertarget="my-popover" popovertargetaction="hide">Cerrar</button>
+                </div>
+            </div>
+
+            <div class="god-level-card">
+                <h3>Container Queries</h3>
+                <p>El fondo de este cuadro cambia si su contenedor es >200px. Arrastra la esquina para probar.</p>
+                <div class="cq-container">
+                    <div class="cq-child">Soy un hijo sensible al contenedor.</div>
+                </div>
+            </div>
+
+            <div class="god-level-card">
+                <h3>Animación <code>offset-path</code></h3>
+                <p>Este punto se anima sobre una trayectoria SVG. ¡Prueba de rendimiento!</p>
+                <div class="offset-path-container">
+                    <div class="offset-path-element"></div>
+                </div>
+            </div>
+
+            <div class="god-level-card">
+                <h3>Función <code>color-mix()</code></h3>
+                <p>El color de este fondo se genera con `color-mix()`.</p>
+                <div class="color-mix-test"></div>
+            </div>
+
+            <div class="god-level-card">
+                <h3>Houdini <code>@property</code></h3>
+                <p>Este degradado cónico se anima usando una propiedad CSS personalizada.</p>
+                <div class="property-animation-test"></div>
+            </div>
+
+        </div>
+
+        <hr>
+
         <h2>Texto Dinámico (Span)</h2>
         <p>El dato actual es: <span id="dynamicText" style="font-weight: bold; color: #d9534f;">dato inicial</span></p>
         <button id="updateTextBtn">Actualizar Dato</button>
@@ -632,6 +898,20 @@
                 }
             }
             customElements.define('shadow-dom-test', ShadowDomTest);
+
+            // --- Lógica para el CSS HOUDINI PAINT API ---
+            if ('paintWorklet' in CSS) {
+                CSS.paintWorklet.addModule(`data:text/javascript,
+                    class CheckerboardPainter {
+                        paint(ctx, size) {
+                            ctx.fillStyle = 'rebeccapurple';
+                            ctx.fillRect(0, 0, size.width / 2, size.height / 2);
+                            ctx.fillRect(size.width / 2, size.height / 2, size.width / 2, size.height / 2);
+                        }
+                    }
+                    registerPaint('checkerboard', CheckerboardPainter);
+                `);
+            }
         });
     </script>
 <script type="module" src="theme-generator.js"></script>
