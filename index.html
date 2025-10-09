@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme-initialized="false">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,6 +13,7 @@
             color: #333;
             padding: 20px;
         }
+
         .container {
             max-width: 800px;
             margin: auto;
@@ -21,6 +22,11 @@
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+
+        h1, h2, h3 {
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
         button {
             padding: 10px 15px;
             border: none;
@@ -29,9 +35,16 @@
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
+            transition: background-color 0.2s ease;
         }
         button:hover {
             background-color: #0056b3;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #eee;
+            margin: 40px 0;
         }
 
         /* --- Estilos para las Pestañas (Tabs) --- */
@@ -105,6 +118,62 @@
         .close-button:focus {
             color: black;
         }
+
+        /* --- Estilos para elementos de prueba adicionales --- */
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            align-items: start;
+        }
+        .test-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .test-card h3 {
+            margin-top: 0;
+        }
+        .background-image-test {
+            height: 100px;
+            background-image: url('https://github.com/HectorDanielAyarachiFuentes/fotos-dulce/blob/main/Fotos-Dulce/Dulce-corazones.jpg?raw=true');
+            background-size: cover;
+            background-position: center;
+            border-radius: 4px;
+            color: white;
+            text-shadow: 1px 1px 3px black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .gradient-background-test {
+            height: 100px;
+            background: linear-gradient(45deg, #ff8a00, #e52e71);
+            border-radius: 4px;
+        }
+        blockquote {
+            border-left: 5px solid #007bff;
+            padding-left: 15px;
+            margin-left: 0;
+            font-style: italic;
+            position: relative;
+        }
+        blockquote::before, blockquote::after {
+            font-family: "Georgia", serif;
+            font-size: 3em;
+            color: #007bff;
+            opacity: 0.2;
+            position: absolute;
+        }
+        blockquote::before { content: '“'; left: -15px; top: -10px; }
+        blockquote::after { content: '”'; right: 0; bottom: -30px; }
+
+        .icon-test {
+            width: 24px;
+            height: 24px;
+            /* El color se hereda y debe ser invertido por el script */
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -149,6 +218,87 @@
 
         <hr>
 
+        <h2>Más Componentes para Retar al Inversor</h2>
+        <div class="test-grid">
+
+            <div class="test-card">
+                <h3>Imagen y Video</h3>
+                <p>Las imágenes y videos no deberían invertirse, solo atenuarse.</p>
+                <img src="https://github.com/HectorDanielAyarachiFuentes/fotos-dulce/blob/main/Fotos-Dulce/Dulce-3.jpg?raw=true" alt="Placeholder" style="max-width: 100%; border-radius: 4px;">
+                <video controls muted loop style="max-width: 100%; margin-top: 10px; border-radius: 4px;">
+                    <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">
+                    Tu navegador no soporta el tag de video.
+                </video>
+            </div>
+
+            <div class="test-card">
+                <h3>Iframe (YouTube)</h3>
+                <p>Los iframes deben ser excluidos para funcionar correctamente.</p>
+                <iframe width="100%" height="150" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 4px;"></iframe>
+            </div>
+
+            <div class="test-card">
+                <h3>Fondos CSS</h3>
+                <p>Imagen de fondo (debe ser excluida por el selector `[style*=background-image]`):</p>
+                <div class="background-image-test">Texto sobre imagen</div>
+                <p style="margin-top: 10px;">Fondo con degradado (los colores se alterarán con `hue-rotate`):</p>
+                <div class="gradient-background-test"></div>
+            </div>
+
+            <div class="test-card">
+                <h3>Pseudo-elementos</h3>
+                <p>Las comillas y el borde de este bloque se crean con CSS.</p>
+                <blockquote>La simplicidad es la máxima sofisticación.</blockquote>
+            </div>
+
+            <div class="test-card">
+                <h3>Iconos SVG</h3>
+                <p>Icono simple (debe cambiar de color como el texto):</p>
+                <svg class="icon-test" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>
+                <p>Gráfico SVG complejo (debe invertirse como una imagen):</p>
+                <svg viewBox="0 0 100 50" style="width: 100%; height: auto;">
+                    <rect width="100" height="50" fill="#f0f0f0"/>
+                    <circle cx="25" cy="25" r="20" fill="#ff6347"/>
+                    <rect x="60" y="10" width="30" height="30" fill="#4682b4" stroke="black" stroke-width="1"/>
+                </svg>
+            </div>
+
+            <div class="test-card" data-theme-exclude>
+                <h3>Exclusión Manual</h3>
+                <p>Este cuadro tiene `data-theme-exclude`, por lo que <strong>nunca</strong> debería cambiar su apariencia.</p>
+                <button>Botón Normal</button>
+            </div>
+
+            <div class="test-card">
+                <h3>Canvas</h3>
+                <p>El contenido de Canvas se dibuja con JS y no es afectado por filtros CSS.</p>
+                <canvas id="myCanvas" width="200" height="100" style="border:1px solid #000000;"></canvas>
+            </div>
+
+            <div class="test-card">
+                <h3>Elementos de Formulario</h3>
+                <form onsubmit="event.preventDefault();">
+                    <label for="texto">Input de texto:</label>
+                    <input type="text" id="texto" placeholder="Escribe algo..." style="width: 90%; margin-bottom: 10px;">
+                    
+                    <label for="selector">Selector:</label>
+                    <select id="selector" style="width: 100%; margin-bottom: 10px;">
+                        <option>Opción 1</option>
+                        <option>Opción 2</option>
+                    </select>
+
+                    <label for="progreso">Barra de progreso:</label>
+                    <progress id="progreso" value="70" max="100" style="width: 100%; margin-bottom: 10px;"></progress>
+
+                    <input type="checkbox" id="check1"> <label for="check1">Checkbox</label><br>
+                    <input type="radio" id="radio1" name="radio"> <label for="radio1">Radio 1</label>
+                </form>
+            </div>
+
+        </div>
+
+        <hr>
+
         <h2>Texto Dinámico (Span)</h2>
         <p>El dato actual es: <span id="dynamicText" style="font-weight: bold; color: #d9534f;">dato inicial</span></p>
         <button id="updateTextBtn">Actualizar Dato</button>
@@ -156,7 +306,6 @@
 
 
     <script>
-        // Espera a que todo el HTML esté cargado para ejecutar el script
         document.addEventListener('DOMContentLoaded', () => {
 
             // --- Lógica para las PESTAÑAS ---
@@ -211,6 +360,14 @@
                 dynamicTextSpan.textContent = `Actualizado ${clickCount} veces`;
             });
 
+            // --- Lógica para el CANVAS ---
+            const canvas = document.getElementById('myCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'red';
+            ctx.fillRect(10, 10, 50, 50);
+            ctx.fillStyle = 'blue';
+            ctx.font = '16px Arial';
+            ctx.fillText('Hola Canvas', 70, 40);
         });
     </script>
 <script type="module" src="theme-generator.js"></script>
