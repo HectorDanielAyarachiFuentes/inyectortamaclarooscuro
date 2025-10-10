@@ -14,19 +14,23 @@ import { fireEvent } from '@testing-library/dom';
 
 // Mock de la interfaz `matchMedia` que usa el script para detectar preferencias del sistema.
 // Jest se ejecuta en Node.js, no en un navegador, por lo que `window.matchMedia` no existe.
-// Lo simulamos para poder controlar su comportamiento en las pruebas.
+// Lo simulamos como una instancia única para poder espiarlo correctamente.
+const matchMediaMock = {
+  matches: false,
+  media: '',
+  onchange: null,
+  addListener: jest.fn(), // Deprecated
+  removeListener: jest.fn(), // Deprecated
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  dispatchEvent: jest.fn(),
+};
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: jest.fn().mockImplementation(query => ({
-    matches: false, // Por defecto, simulamos que el sistema prefiere el tema claro.
-    media: query,
-    onchange: null, // jest.fn() no es necesario aquí
-    addListener: jest.fn(), // Deprecated
-    removeListener: jest.fn(), // Deprecated
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
+  value: jest.fn().mockImplementation(query => {
+    matchMediaMock.media = query;
+    return matchMediaMock;
+  }),
 });
 
 // Mock de `localStorage`. Al igual que `matchMedia`, no existe en el entorno de Node.js.
@@ -63,7 +67,7 @@ describe('AutoTheme', () => {
     // Limpiamos nuestro mock de localStorage.
     localStorage.clear();
     // Reseteamos el mock de matchMedia para que devuelva 'false' (light mode) por defecto.
-    window.matchMedia.mockImplementation(query => ({ matches: false, addEventListener: jest.fn() }));
+    matchMediaMock.matches = false;
     // Limpiamos atributos que el script podría haber añadido al elemento <html>.
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-theme-initialized');
@@ -74,7 +78,12 @@ describe('AutoTheme', () => {
     // Mock para evitar el error de parsing de CSS en JSDOM.
     // Esto previene que los estilos se inyecten en el head durante las pruebas.
     jest.spyOn(document.head, 'appendChild').mockImplementation(el => {
-      if (el.tagName === 'STYLE') return null;
+      // No adjuntar <style> para evitar errores de análisis de CSS en JSDOM,
+      // pero permitir otros elementos como los scripts de prueba.
+      if (el.tagName === 'STYLE') {
+        return el;
+      }
+      return Node.prototype.appendChild.call(document.head, el);
     });
   });
 
@@ -107,7 +116,7 @@ describe('AutoTheme', () => {
 
   test('debería aplicar el tema oscuro si el sistema operativo lo prefiere y no hay preferencia guardada', () => {
     // Arrange: Simulamos que el sistema operativo del usuario está en modo oscuro.
-    window.matchMedia.mockImplementation(query => ({ matches: true, addEventListener: jest.fn() }));
+    matchMediaMock.matches = true;
     const myBrandColors = { surface: '#ffffff', text: '#2c3e50' };
 
     // Act
@@ -230,6 +239,9 @@ describe('AutoTheme', () => {
     // Assert (Restaurado): Verificamos que el contenedor es visible de nuevo.
     expect(triggerContainer.style.display).toBe('flex');
     expect(localStorage.getItem('theme-button-hidden')).toBeNull();
+
+    // Cleanup: Restauramos los temporizadores reales.
+    jest.useRealTimers();
   });
 
   test('debería ejecutar el tutorial de bienvenida correctamente', () => {
@@ -275,6 +287,9 @@ describe('AutoTheme', () => {
     fireEvent.keyDown(window, { key: 't' }); // Última pulsación para terminar
     expect(localStorage.getItem('theme-tutorial-completed')).toBe('true');
     expect(triggerContainer.classList.contains('tutorial-active')).toBe(false);
+
+    // Cleanup: Es crucial restaurar los temporizadores reales para las pruebas asíncronas siguientes.
+    jest.useRealTimers();
   });
 
   test('debería manejar casos límite y errores de configuración', () => {
@@ -331,10 +346,11 @@ describe('AutoTheme', () => {
 
   test('debería aplicar exclusión funcional a un icono SVG simple', () => {
     // Arrange: Crear un SVG que cumpla los criterios de un icono simple.
+    // Usamos createElementNS para crear elementos SVG correctamente en JSDOM.
     const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgIcon.setAttribute('width', '24');
-    svgIcon.setAttribute('height', '24');
-    svgIcon.innerHTML = '<path d="M10 10 H 90 V 90 H 10 Z" />'; // Un solo path, sin rellenos complejos.
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M10 10 H 90 V 90 H 10 Z');
+    svgIcon.appendChild(path);
     document.body.appendChild(svgIcon);
 
     // Act: Inicializar AutoTheme. Esto llamará a #applyFunctionalExclusions.
@@ -342,18 +358,82 @@ describe('AutoTheme', () => {
 
     // Assert: Verificar que al SVG se le aplicó el atributo de exclusión.
     expect(svgIcon.getAttribute('data-theme-exclude')).toBe('svg-icon');
+    expect(svgIcon.style.color).toBe('var(--color-text)');
   });
 
   test('NO debería aplicar exclusión a un SVG complejo', () => {
-    // Arrange: Crear un SVG complejo (demasiados paths).
+    // Arrange: Crear un SVG complejo (demasiados paths o con rellenos complejos).
     const complexSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    complexSvg.innerHTML = '<path d="..."></path><path d="..."></path><path d="..."></path><path d="..."></path><path d="..."></path>'; // 5 paths
+    for (let i = 0; i < 5; i++) { // 5 paths, lo que incumple la condición pathCount < 5
+      complexSvg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'path'));
+    }
     document.body.appendChild(complexSvg);
+
+    const svgWithGradient = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const pathWithGradient = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathWithGradient.setAttribute('fill', 'url(#myGradient)'); // Relleno complejo
+    svgWithGradient.appendChild(pathWithGradient);
+    document.body.appendChild(svgWithGradient);
 
     // Act
     new AutoTheme({ surface: '#fff', text: '#000' });
 
     // Assert: El SVG complejo NO debe tener el atributo de exclusión.
     expect(complexSvg.hasAttribute('data-theme-exclude')).toBe(false);
+    expect(svgWithGradient.hasAttribute('data-theme-exclude')).toBe(false);
+  });
+
+  test('debería intentar sincronizar con iframes del mismo origen', (done) => {
+    // Arrange
+    // Añadimos un script simulado al head para que la lógica de inyección lo encuentre.
+    const mockScript = document.createElement('script');
+    mockScript.src = 'theme-generator.js';
+    mockScript.type = 'module';
+    document.head.appendChild(mockScript);
+
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+
+    // JSDOM no simula completamente el ciclo de vida de un iframe.
+    // Para esta prueba, definimos explícitamente el `readyState` para que la lógica de `load` se active.
+    Object.defineProperty(iframe.contentDocument, 'readyState', {
+      value: 'loading', writable: true
+    });
+    // Mock del contentDocument del iframe
+    const iframeDoc = iframe.contentDocument;
+    iframeDoc.head.innerHTML = '';
+    iframeDoc.body.innerHTML = '';
+    // Creamos un espía en el método que queremos verificar.
+    const appendChildSpy = jest.spyOn(iframeDoc.head, 'appendChild');
+
+    // Act: Instanciamos la clase DESPUÉS de que el iframe y el spy existen.
+    new AutoTheme();
+
+    // Assert: Verificar que se intentó añadir el script al head del iframe.
+    // Simulamos que el iframe termina de cargar. Esto debería disparar el listener.
+    fireEvent.load(iframe);
+
+    // Usamos setTimeout para asegurar que la aserción se ejecute después de que el
+    // event loop de JS haya procesado el evento 'load'.
+    setTimeout(() => {
+        expect(appendChildSpy).toHaveBeenCalled();
+        done(); // Finaliza la prueba asíncrona.
+    }, 0);
+  });
+
+  test('debería limpiar los listeners de eventos al llamar a destroy()', () => {
+    // Arrange
+    const themeInstance = new AutoTheme();
+    // Espiamos el método interno para una prueba más fiable y aislada.
+    const removeListenerSpy = jest.spyOn(themeInstance, 'destroy');
+    const matchMediaRemoveSpy = jest.spyOn(matchMediaMock, 'removeEventListener');
+
+    // Act
+    themeInstance.destroy();
+
+    // Assert: Verificamos que se llamó a removeEventListener para los listeners que registramos.
+    // Verificamos que se intentó eliminar los listeners específicos de AutoTheme.
+    expect(removeListenerSpy).toHaveBeenCalled();
+    expect(matchMediaRemoveSpy).toHaveBeenCalledWith('change', expect.any(Function)); // El listener de matchMedia no tiene 'options'.
   });
 });

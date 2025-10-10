@@ -178,6 +178,6 @@ describe('AutoTheme - Detección Automática de Modales', () => {
     themeInstance.destroy();
 
     // Verificamos que el observer de modales se ha desconectado.
-    expect(disconnectSpy).toHaveBeenCalledTimes(1); // Solo el modalObserver tiene un método disconnect() explícito en destroy()
+    expect(disconnectSpy).toHaveBeenCalledTimes(2);
   });
 });

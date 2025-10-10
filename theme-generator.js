@@ -115,7 +115,9 @@ export class AutoTheme {
   #tutorialActive = false; // Estado del tutorial de bienvenida.
   #tutorialStep = 0; // Paso actual del tutorial.
   #tutorialTooltip; // Elemento para mostrar mensajes del tutorial.
+  #tutorialKeydownHandler; // Almacena la referencia al listener del tutorial para poder eliminarlo.
 
+  #bodyAttributeObserver; // Observador para los atributos del body.
   #listeners = []; // Almacena los event listeners para poder eliminarlos después.
   #gradientSelectorInstance; // Almacenará la instancia de GradientSelector
   /**
@@ -627,13 +629,14 @@ export class AutoTheme {
     this.#tutorialStep = 1;
 
     // 1. Añadir animación de destello
+    this.#tutorialKeydownHandler = this.#handleTutorialKeyPress.bind(this);
     this.#toggleButton.classList.add('sparkle');
 
     // 2. Mostrar el primer mensaje
     this.#showTutorialTooltip(`¡Hey tú! Pulsa la tecla '${this.#shortcutKey.toUpperCase()}'`);
 
     // 3. Escuchar la pulsación de tecla
-    this.#addEventListener(window, 'keydown', this.#handleTutorialKeyPress.bind(this));
+    this.#addEventListener(window, 'keydown', this.#tutorialKeydownHandler);
   }
 
   #handleTutorialKeyPress(e) {
@@ -674,7 +677,7 @@ export class AutoTheme {
       localStorage.setItem(STORAGE_KEYS.TUTORIAL, 'true');
       
       // Limpiar el listener para que no interfiera más
-      window.removeEventListener('keydown', this.#handleTutorialKeyPress.bind(this));
+      this.#removeEventListener(window, 'keydown', this.#tutorialKeydownHandler);
     }
   }
 
@@ -1090,7 +1093,14 @@ export class AutoTheme {
       // Detección "inteligente" de iconos SVG
       if (el.tagName.toLowerCase() === 'svg') {
         const pathCount = el.querySelectorAll('path').length;
-        const hasComplexFills = el.querySelector('[fill*="url("], [fill*="gradient"]');
+        // Hacemos la comprobación más robusta para JSDOM
+        let hasComplexFills = false;
+        el.querySelectorAll('path[fill]').forEach(path => {
+          const fill = path.getAttribute('fill');
+          if (fill.includes('url(') || fill.includes('gradient')) {
+            hasComplexFills = true;
+          }
+        });
         if (pathCount > 0 && pathCount < 5 && !hasComplexFills) {
           el.style.color = 'var(--color-text)';
           el.setAttribute('data-theme-exclude', 'svg-icon');
@@ -1179,12 +1189,14 @@ export class AutoTheme {
     const trySync = (element) => {
       try {
         // contentDocument para <object>, contentWindow.document para <iframe>
-        const doc = element.contentDocument || element.contentWindow?.document;
-        if (doc && doc.readyState === 'complete') {
+        const doc = element.contentDocument ?? element.contentWindow?.document;
+        if (doc) {
+          if (doc.readyState === 'complete') {
           injectScript(element, doc);
-        } else if (doc) {
+          } else {
           // Si el documento no está listo, esperar al evento 'load'.
           this.#addEventListener(element, 'load', () => injectScript(element, doc), { once: true });
+          }
         }
       } catch (e) {
         // Es un contexto de origen cruzado, lo ignoramos.
@@ -1307,6 +1319,7 @@ export class AutoTheme {
     // Observa cambios en los atributos `style` o `class` del body para recalcular el tema si es necesario.
     const observer = new MutationObserver(() => this.recalculatePageTheme());
     observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
+    this.#bodyAttributeObserver = observer; // Guardar referencia para destroy()
   }
 
   /**
@@ -1316,11 +1329,19 @@ export class AutoTheme {
   destroy() {
     // Eliminar elementos del DOM
     this.#triggerContainer?.remove();
+    document.getElementById('theme-announcer')?.remove();
     this.#modalObserver?.disconnect();
+    this.#bodyAttributeObserver?.disconnect();
 
     // Eliminar todos los event listeners registrados
     this.#listeners.forEach(({ target, type, listener, options }) => {
-      target.removeEventListener(type, listener, options);
+      // Pasa `options` solo si está definido, para evitar problemas con implementaciones
+      // de `removeEventListener` que son estrictas con los argumentos (como el mock de matchMedia).
+      if (options) {
+        target.removeEventListener(type, listener, options);
+      } else {
+        target.removeEventListener(type, listener);
+      }
     });
     this.#listeners = []; // Limpiar el array
 
