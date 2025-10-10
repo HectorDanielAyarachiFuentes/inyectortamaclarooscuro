@@ -328,4 +328,32 @@ describe('AutoTheme', () => {
     expect(triggerContainer.style.display).toBe('none');
     expect(localStorage.getItem('theme-button-hidden')).toBe('true');
   });
+
+  test('debería aplicar exclusión funcional a un icono SVG simple', () => {
+    // Arrange: Crear un SVG que cumpla los criterios de un icono simple.
+    const svgIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgIcon.setAttribute('width', '24');
+    svgIcon.setAttribute('height', '24');
+    svgIcon.innerHTML = '<path d="M10 10 H 90 V 90 H 10 Z" />'; // Un solo path, sin rellenos complejos.
+    document.body.appendChild(svgIcon);
+
+    // Act: Inicializar AutoTheme. Esto llamará a #applyFunctionalExclusions.
+    new AutoTheme({ surface: '#fff', text: '#000' });
+
+    // Assert: Verificar que al SVG se le aplicó el atributo de exclusión.
+    expect(svgIcon.getAttribute('data-theme-exclude')).toBe('svg-icon');
+  });
+
+  test('NO debería aplicar exclusión a un SVG complejo', () => {
+    // Arrange: Crear un SVG complejo (demasiados paths).
+    const complexSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    complexSvg.innerHTML = '<path d="..."></path><path d="..."></path><path d="..."></path><path d="..."></path><path d="..."></path>'; // 5 paths
+    document.body.appendChild(complexSvg);
+
+    // Act
+    new AutoTheme({ surface: '#fff', text: '#000' });
+
+    // Assert: El SVG complejo NO debe tener el atributo de exclusión.
+    expect(complexSvg.hasAttribute('data-theme-exclude')).toBe(false);
+  });
 });
