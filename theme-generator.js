@@ -39,6 +39,23 @@ const COLOR_MAP = {
   "yellow": "#ffff00", "yellowgreen": "#9acd32"
 };
 
+// --- CONSTANTES DE CONFIGURACIÓN ---
+const Z_INDEX = {
+  CONTAINER: '9999',
+  PARTICLE: '9998',
+  ORBIT: '1',
+  MAIN_BUTTON: '3',
+  TOOLTIP: '10',
+};
+const ORBIT_RADIUS = 38; // px
+const PARTICLE_THROTTLE = 20; // ms
+const STORAGE_KEYS = {
+  THEME: 'theme-preference',
+  POSITION: 'theme-button-position',
+  HIDDEN: 'theme-button-hidden',
+  TUTORIAL: 'theme-tutorial-completed',
+};
+
 // Iconos SVG para el botón de cambio de tema. Se almacenan como plantillas de texto para inyectarlos fácilmente.
 const MOON_ICON = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3304.85 3304.44" style="width:28px; height:28px;">
@@ -71,7 +88,18 @@ const SUN_ICON = `
 /**
  * Clase principal que gestiona toda la lógica del cambio de tema.
  */
-class AutoTheme {
+export class AutoTheme {
+  // --- CONSTANTES DE CONFIGURACIÓN ---
+  static Z_INDEX = {
+    CONTAINER: '9999',
+    PARTICLE: '9998',
+    ORBIT: '1',
+    MAIN_BUTTON: '3',
+    TOOLTIP: '10',
+  };
+  static ORBIT_RADIUS = 38; // px
+  static PARTICLE_THROTTLE = 20; // ms
+
   // --- PROPIEDADES PRIVADAS ---
   #baseColors; // Almacena los colores base (superficie y texto) para el tema claro.
   #buttonOptions; // Opciones de configuración para el botón flotante.
@@ -88,6 +116,7 @@ class AutoTheme {
   #tutorialStep = 0; // Paso actual del tutorial.
   #tutorialTooltip; // Elemento para mostrar mensajes del tutorial.
 
+  #listeners = []; // Almacena los event listeners para poder eliminarlos después.
   #gradientSelectorInstance; // Almacenará la instancia de GradientSelector
   /**
    * Inicializa la clase.
@@ -111,8 +140,8 @@ class AutoTheme {
     };
     this.#shortcutKey = this.#buttonOptions.shortcutKey || 't';
     this.#gradientSelectorInstance = this.#buttonOptions.gradientSelector;
-    this.#isTriggerPermanentlyHidden = localStorage.getItem('theme-button-hidden') === 'true';
-    this.#tutorialActive = localStorage.getItem('theme-tutorial-completed') !== 'true';
+    this.#isTriggerPermanentlyHidden = localStorage.getItem(STORAGE_KEYS.HIDDEN) === 'true';
+    this.#tutorialActive = localStorage.getItem(STORAGE_KEYS.TUTORIAL) !== 'true';
 
     // Inicia todo el proceso.
     this.#init();
@@ -363,7 +392,7 @@ class AutoTheme {
   #applyThemeChanges(manualToggle) {
     // Si el cambio fue manual, guarda la preferencia en localStorage.
     if (manualToggle) {
-      localStorage.setItem('theme-preference', this.#isDark ? 'dark' : 'light');
+      localStorage.setItem(STORAGE_KEYS.THEME, this.#isDark ? 'dark' : 'light');
     }
 
     // Anuncia el cambio de tema a los lectores de pantalla.
@@ -405,7 +434,7 @@ class AutoTheme {
 
   #getSavedButtonPosition() {
     try {
-      const savedPositionRaw = localStorage.getItem('theme-button-position');
+      const savedPositionRaw = localStorage.getItem(STORAGE_KEYS.POSITION);
       if (!savedPositionRaw) return null;
 
       const savedPosition = JSON.parse(savedPositionRaw);
@@ -414,7 +443,7 @@ class AutoTheme {
       }
     } catch (error) {
       console.error('Error parsing saved button position:', error);
-      localStorage.removeItem('theme-button-position'); // Clean up corrupted data
+      localStorage.removeItem(STORAGE_KEYS.POSITION); // Clean up corrupted data
     }
     return null;
   }
@@ -435,7 +464,7 @@ class AutoTheme {
       ...initialPositionStyles,
       width: '120px', // Ancho y alto fijos para contener la órbita
       height: '120px',
-      zIndex: '9999',
+      zIndex: Z_INDEX.CONTAINER,
       display: this.#isTriggerPermanentlyHidden ? 'none' : 'flex',
       alignItems: 'center', // Centra los hijos verticalmente
       justifyContent: 'center', // Centra los hijos horizontalmente
@@ -466,7 +495,7 @@ class AutoTheme {
       boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
       transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease',
       pointerEvents: 'auto', // El botón sí captura eventos.
-      zIndex: '3' // Asegura que el botón principal esté por encima de la órbita y el tooltip.
+      zIndex: Z_INDEX.MAIN_BUTTON
     });
 
     this.#toggleButton.addEventListener('mouseover', () => this.#toggleButton.style.transform = 'scale(1.1)');
@@ -490,7 +519,7 @@ class AutoTheme {
   #createSatelliteButtons(orbitContainer) {
     // --- ¡AQUÍ PUEDES CAMBIAR LA DISTANCIA DE LA ÓRBITA! ---
     // Este valor (en píxeles) define qué tan lejos orbitan los botones del centro.
-    const orbitRadius = 38; // Valor por defecto: 38px
+    const orbitRadius = ORBIT_RADIUS; // Valor por defecto: 38px
     // ---------------------------------------------------------
 
     // El tamaño del contenedor se calcula automáticamente para que quepa la órbita.
@@ -507,8 +536,9 @@ class AutoTheme {
     Object.assign(orbitWrapper.style, { // El wrapper ahora coincide con el tamaño del contenedor padre.
       position: 'absolute',
       animation: 'orbit 10s linear infinite',
+      animationPlayState: 'running', // Establecer explícitamente el estado inicial
       pointerEvents: 'none', // El wrapper no interfiere con los clics.
-      zIndex: '1' // Detrás del botón principal
+      zIndex: Z_INDEX.ORBIT // Detrás del botón principal
     });
     orbitWrapper.setAttribute('data-theme-exclude', 'animation-wrapper'); // Excluir para que la animación no se invierta.
     
@@ -535,10 +565,10 @@ class AutoTheme {
         transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease',
         pointerEvents: 'auto',
       });
-      gradientModalButton.addEventListener('click', () => {
+      this.#addEventListener(gradientModalButton, 'click', () => {
         this.#gradientSelectorInstance.toggleModal(true);
       });
-      window.addEventListener('themechange', () => {
+      this.#addEventListener(window, 'themechange', () => {
         gradientModalButton.style.backgroundColor = 'var(--color-surface)';
         gradientModalButton.style.color = 'var(--color-text)';
       });
@@ -571,11 +601,11 @@ class AutoTheme {
         transition: 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease',
         pointerEvents: 'auto', // Este botón sí captura eventos.
     });
-    closePermanentlyButton.addEventListener('click', () => this.#togglePermanentTriggerVisibility(true));
-    window.addEventListener('themechange', () => {
+    this.#addEventListener(closePermanentlyButton, 'click', () => this.#togglePermanentTriggerVisibility(true));
+    this.#addEventListener(window, 'themechange', () => {
         closePermanentlyButton.style.backgroundColor = 'var(--color-surface)';
         closePermanentlyButton.style.color = 'var(--color-text)';
-        closePermanentlyButton.style.borderColor = 'rgba(var(--color-text-rgb), 0.2)';
+        closePermanentlyButton.style.borderColor = 'rgba(var(--color-text-rgb), 0.1)';
     });
 
     orbitWrapper.appendChild(closePermanentlyButton);
@@ -603,7 +633,7 @@ class AutoTheme {
     this.#showTutorialTooltip(`¡Hey tú! Pulsa la tecla '${this.#shortcutKey.toUpperCase()}'`);
 
     // 3. Escuchar la pulsación de tecla
-    window.addEventListener('keydown', this.#handleTutorialKeyPress.bind(this));
+    this.#addEventListener(window, 'keydown', this.#handleTutorialKeyPress.bind(this));
   }
 
   #handleTutorialKeyPress(e) {
@@ -641,7 +671,7 @@ class AutoTheme {
       this.#hideTutorialTooltip();
       this.#toggleButton.classList.remove('sparkle');
       this.#triggerContainer.classList.remove('tutorial-active');
-      localStorage.setItem('theme-tutorial-completed', 'true');
+      localStorage.setItem(STORAGE_KEYS.TUTORIAL, 'true');
       
       // Limpiar el listener para que no interfiera más
       window.removeEventListener('keydown', this.#handleTutorialKeyPress.bind(this));
@@ -680,27 +710,27 @@ class AutoTheme {
     Object.assign(particle.style, {
       left: `${x}px`,
       top: `${y}px`,
-    });
+    }); // La clase 'theme-drag-particle' ya define la posición como 'fixed'
 
     document.body.appendChild(particle);
     // Elimina la partícula del DOM cuando su animación termina
-    particle.addEventListener('animationend', () => particle.remove());
+    this.#addEventListener(particle, 'animationend', () => particle.remove());
   }
   #togglePermanentTriggerVisibility(hide) {
       this.#isTriggerPermanentlyHidden = hide;
       if (hide) {
-          localStorage.setItem('theme-button-hidden', 'true');
+          localStorage.setItem(STORAGE_KEYS.HIDDEN, 'true');
           this.#triggerContainer.style.animation = 'destroy-button 0.4s ease-out forwards';
-          this.#triggerContainer.addEventListener('animationend', () => this.#triggerContainer.style.display = 'none', { once: true });
+          this.#addEventListener(this.#triggerContainer, 'animationend', () => this.#triggerContainer.style.display = 'none', { once: true });
       } else {
-          localStorage.removeItem('theme-button-hidden');
+          localStorage.removeItem(STORAGE_KEYS.HIDDEN);
           this.#triggerContainer.style.display = 'flex';
           this.#triggerContainer.style.animation = 'reconstruct-button 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
           // Animación de entrada para el botón 'X'
           const closeButton = this.#triggerContainer.querySelector('button:not(#theme-toggle-button)');
           if (closeButton) closeButton.style.animation = 'reconstruct-satellite 0.5s ease-out 0.2s forwards';
 
-          this.#triggerContainer.addEventListener('animationend', () => this.#triggerContainer.style.animation = '', { once: true });
+          this.#addEventListener(this.#triggerContainer, 'animationend', () => this.#triggerContainer.style.animation = '', { once: true });
           
           // ¡El toque de Terminator!
           this.#toggleButton.innerHTML = `<span style="font-size: 12px; font-weight: bold; text-align: center; line-height: 1.2;">I'll be<br>back</span>`;
@@ -728,8 +758,8 @@ class AutoTheme {
       element.style.cursor = 'grabbing';
       element.style.transition = 'none';
 
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp, { once: true });
+      this.#addEventListener(document, 'mousemove', onMouseMove);
+      this.#addEventListener(document, 'mouseup', onMouseUp, { once: true });
     };
 
     const onMouseMove = (e) => {
@@ -742,7 +772,7 @@ class AutoTheme {
           const rect = element.getBoundingClientRect();
           this.#createParticle(rect.left + rect.width / 2, rect.top + rect.height / 2);
           throttleTimer = null;
-        }, 20); // Crea una partícula como máximo cada 20ms
+        }, PARTICLE_THROTTLE); // Crea una partícula como máximo cada 20ms
       }
 
       const x = Math.max(0, Math.min(window.innerWidth - element.offsetWidth, e.clientX - offsetX));
@@ -757,10 +787,10 @@ class AutoTheme {
       isDragging = false;
       element.style.cursor = 'pointer';
       element.style.transition = 'transform 0.2s ease, background-color 0.3s ease, color 0.3s ease';
-      document.removeEventListener('mousemove', onMouseMove);
+      this.#removeEventListener(document, 'mousemove', onMouseMove);
       
       // Guarda la nueva posición en localStorage al soltar el botón.
-      localStorage.setItem('theme-button-position', JSON.stringify({ left: element.offsetLeft, top: element.offsetTop }));
+      localStorage.setItem(STORAGE_KEYS.POSITION, JSON.stringify({ left: element.offsetLeft, top: element.offsetTop }));
     };
 
     element.addEventListener('mousedown', onMouseDown);
@@ -792,31 +822,22 @@ class AutoTheme {
     this.#toggleButton.style.color = 'var(--color-text)';
   }
 
-  /**
-   * Inyecta la hoja de estilos principal en el `<head>` del documento.
-   * Contiene toda la lógica de inversión de colores y animaciones.
-   */
-  #injectBaseStyles() {
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      ${this.#generateThemeStyles()}
-      ${this.#generateExclusionStyles()}
-      /* Estilos de animación y elementos UI */
-      ${this.#generateUIAndAnimationStyles()}
-    `;
-    document.head.appendChild(styleElement);
-  }
-
-  #generateThemeStyles() {
+  #generateAllStyles() {
     // Ajusta el contraste y brillo para modos de alto contraste del sistema operativo.
     const highContrast = window.matchMedia('(prefers-contrast: more)').matches;
     const contrastValue = highContrast ? '110%' : '90%';
-    const brightnessValue = highContrast ? '100%' : '95%';
+    const brightnessValue = highContrast ? '100%' : '95%'; // eslint-disable-line
     const { transitionDuration, transitionTimingFunction } = this.#buttonOptions;
     const darkColors = this.#generateDarkColors();
 
+    // Genera selectores de exclusión
+    const baseExclusions = ['iframe', 'object', '#theme-toggle-container', '[data-theme-exclude]', '[style*="background-image"]'];
+    const userExclusions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'string');
+    const allExclusionSelectors = [...new Set([...baseExclusions, ...userExclusions])];
+    const fullInvertSelector = allExclusionSelectors.map(sel => `[data-theme="inverted"] ${sel}`).join(',\n');
+
     return `
-      /* Define las variables CSS para los colores base. */
+      /* --- Estilos del Tema y Variables --- */
       :root {
         --color-surface: ${this.#baseColors.surface ?? '#ffffff'};
         --color-text: ${this.#baseColors.text ?? '#2c3e50'};
@@ -875,7 +896,154 @@ class AutoTheme {
         border: 1px solid rgba(var(--color-text-rgb), 0.2);
         transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
       }
+
+      /* --- Estilos de Exclusión --- */
+      /* Para los elementos excluidos, se aplica un filtro de inversión inverso para anular el efecto. */
+      ${fullInvertSelector} { filter: invert(1) hue-rotate(180deg); }
+
+      /* Tratamiento "inteligente" para imágenes y videos: se reduce su brillo en lugar de excluirlos. */
+      /* Primero se aplica el filtro inverso para neutralizar el efecto del <html>, y LUEGO se ajusta el brillo/contraste. */
+      [data-theme="inverted"] img, 
+      [data-theme="inverted"] video { filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.95); }
     `;
+  }
+
+  #generateUIAndAnimationStyles() {
+    const { transitionTimingFunction } = this.#buttonOptions;
+    return `
+      /* --- Estilos de Animación y UI --- */
+      @keyframes rotate-icon {
+        0% { transform: rotate(-90deg) scale(0); opacity: 0; }
+        70% { transform: rotate(20deg) scale(1.2); opacity: 1; }
+        100% { transform: rotate(0deg) scale(1); opacity: 1; }
+      }
+
+      /* Aplica la animación al SVG dentro del botón cuando se está cambiando de tema. */
+      #theme-toggle-button.is-switching svg { animation: rotate-icon 0.4s ${transitionTimingFunction}; }
+
+      /* Animaciones para el botón de "Sorpresas" */
+      @keyframes destroy-button {
+        0% { transform: scale(1) rotate(0deg); opacity: 1; }
+        100% { transform: scale(0) rotate(180deg); opacity: 0; }
+      }
+      @keyframes reconstruct-button {
+        0% { transform: scale(0) rotate(180deg); opacity: 0; }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+      }
+
+      /* Animación de órbita para el contenedor de los satélites */
+      @keyframes orbit {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      /* Animación de reconstrucción para el satélite 'X' */
+      @keyframes reconstruct-satellite {
+        from { transform: scale(0); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+
+      /* Animación de destello para el tutorial */
+      @keyframes sparkle-effect {
+        0%, 100% { box-shadow: 0 0 8px 3px rgba(255, 255, 0, 0.7), 0 0 12px 5px rgba(255, 165, 0, 0.5); }
+        50% { box-shadow: 0 0 16px 6px rgba(255, 255, 0, 1), 0 0 24px 10px rgba(255, 165, 0, 0.7); }
+      }
+      #theme-toggle-button.sparkle { animation: sparkle-effect 1.5s ease-in-out infinite; }
+
+      /* Animación de estela de FUEGO para el tema claro (sol) */
+      @keyframes meteor-trail {
+        0% { box-shadow: 0 0 0px rgba(255, 100, 0, 0); }
+        50% {
+          box-shadow: 2px -2px 8px rgba(255, 150, 0, 0.8), 
+                      3px -3px 12px rgba(255, 50, 0, 0.6), 
+                      4px -4px 16px rgba(255, 200, 0, 0.5);
+        }
+        100% { box-shadow: 0 0 0px rgba(255, 100, 0, 0); }
+      }
+
+      /* Animación de estela de HIELO para el tema oscuro (luna) */
+      @keyframes ice-trail {
+        0% { box-shadow: 0 0 0px rgba(0, 255, 255, 0); }
+        50% {
+          box-shadow: 2px -2px 8px rgba(173, 216, 230, 0.9), /* lightblue */
+                      3px -3px 12px rgba(0, 255, 255, 0.7),   /* cyan */
+                      4px -4px 16px rgba(224, 255, 255, 0.6); /* lightcyan */
+        }
+        100% { box-shadow: 0 0 0px rgba(0, 255, 255, 0); }
+      }
+
+      /* --- Estilos y Animación para Partículas de Arrastre --- */
+      .theme-drag-particle {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        pointer-events: none; 
+        z-index: ${Z_INDEX.PARTICLE}; /* Justo debajo del botón */
+        animation: particle-fade-out 0.7s ease-out forwards;
+      }
+
+      @keyframes particle-fade-out {
+        from { transform: scale(1); opacity: 0.8; }
+        to { transform: scale(0); opacity: 0; }
+      }
+
+      /* Partículas de fuego para el tema claro */
+      .theme-drag-particle.particle-fire {
+        background: #ffc94d;
+        box-shadow: 0 0 5px #ffc94d, 0 0 10px #ffc94d, 0 0 15px #ff9a2a;
+      }
+      /* Partículas de hielo para el tema oscuro */
+      .theme-drag-particle.particle-ice {
+        background: #a7d8ff;
+        box-shadow: 0 0 5px #a7d8ff, 0 0 10px #a7d8ff, 0 0 15px #00aaff;
+      }
+
+      /* --- Estilos del Tutorial --- */
+      .tutorial-active .theme-satellite-button { display: none; }
+      .tutorial-active #theme-orbit-wrapper { animation: none !important; }
+
+      @keyframes tutorial-reveal-anim {
+        from { transform: scale(0) rotate(-180deg); opacity: 0; }
+        to { transform: scale(1) rotate(0deg); opacity: 1; }
+      }
+      .theme-satellite-button.tutorial-reveal { animation: tutorial-reveal-anim 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+      #theme-tutorial-tooltip {
+        position: absolute;
+        bottom: calc(50% + 30px); /* Posicionado encima del botón central */
+        left: 50%;
+        transform: translateX(-50%) scale(0.9);
+        background-color: var(--color-surface);
+        color: var(--color-text);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        border: 1px solid rgba(var(--color-text-rgb), 0.1);
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), bottom 0.3s ease;
+        pointer-events: none;
+        z-index: ${Z_INDEX.TOOLTIP};
+      }
+      #theme-tutorial-tooltip[style*="opacity: 1"] {
+        transform: translateX(-50%) scale(1);
+      }
+
+      body.theme-is-light .theme-satellite-button { animation: meteor-trail 2s linear infinite; }
+      body.theme-is-dark .theme-satellite-button { animation: ice-trail 2s linear infinite; }
+      .tutorial-active ~ body.theme-is-light .theme-satellite-button,
+      .tutorial-active ~ body.theme-is-dark .theme-satellite-button { animation: none; }
+    `;
+  }
+  
+  #injectBaseStyles() {
+    const styleElement = document.createElement('style');
+    // Unimos todos los estilos en una sola inyección
+    styleElement.textContent = this.#generateAllStyles() + this.#generateUIAndAnimationStyles();
+    document.head.appendChild(styleElement);
   }
 
   /**
@@ -887,27 +1055,6 @@ class AutoTheme {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
                   : '0, 0, 0';
-  }
-
-  #generateExclusionStyles() {
-    // Se separan las exclusiones para un tratamiento diferenciado.
-    const baseExclusions = ['iframe', 'object', '#theme-toggle-container', '[data-theme-exclude]', '[style*="background-image"]'];
-    const userExclusions = (this.#buttonOptions.exclude ?? []).filter(e => typeof e === 'string');
-    const allExclusionSelectors = [...new Set([...baseExclusions, ...userExclusions])];
-    const fullInvertSelector = allExclusionSelectors.map(sel => `[data-theme="inverted"] ${sel}`).join(',\n');
-
-    // Permite exclusiones mediante una función de callback para lógica más compleja.
-    this.#applyFunctionalExclusions();
-
-    return `
-      /* Para los elementos excluidos, se aplica un filtro de inversión inverso para anular el efecto. */
-      ${fullInvertSelector} { filter: invert(1) hue-rotate(180deg); }
-
-      /* Tratamiento "inteligente" para imágenes y videos: se reduce su brillo en lugar de excluirlos. */
-      /* Primero se aplica el filtro inverso para neutralizar el efecto del <html>, y LUEGO se ajusta el brillo/contraste. */
-      [data-theme="inverted"] img, 
-      [data-theme="inverted"] video { filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.95); }
-    `;
   }
 
   /**
@@ -952,177 +1099,6 @@ class AutoTheme {
     }
   }
 
-  #generateUIAndAnimationStyles() {
-    const { transitionTimingFunction } = this.#buttonOptions;
-    return `
-      @keyframes rotate-icon {
-        0% { transform: rotate(-90deg) scale(0); opacity: 0; }
-        70% { transform: rotate(20deg) scale(1.2); opacity: 1; }
-        100% { transform: rotate(0deg) scale(1); opacity: 1; }
-      }
-
-      /* Aplica la animación al SVG dentro del botón cuando se está cambiando de tema. */
-      #theme-toggle-button.is-switching svg { animation: rotate-icon 0.4s ${transitionTimingFunction}; }
-
-      /* Animaciones para el botón de "Sorpresas" */
-      @keyframes destroy-button {
-        0% { transform: scale(1) rotate(0deg); opacity: 1; }
-        100% { transform: scale(0) rotate(180deg); opacity: 0; }
-      }
-      @keyframes reconstruct-button {
-        0% { transform: scale(0) rotate(180deg); opacity: 0; }
-        100% { transform: scale(1) rotate(0deg); opacity: 1; }
-      }
-
-      /* Animación de órbita para el contenedor de los satélites */
-      @keyframes orbit {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-
-      /* Animación de reconstrucción para el satélite 'X' */
-      @keyframes reconstruct-satellite {
-        from { transform: scale(0); opacity: 0; }
-        to { transform: scale(1); opacity: 1; }
-      }
-
-      /* Animación de destello para el tutorial */
-      @keyframes sparkle-effect {
-        0%, 100% { box-shadow: 0 0 8px 3px rgba(255, 255, 0, 0.7), 0 0 12px 5px rgba(255, 165, 0, 0.5); }
-        50% { box-shadow: 0 0 16px 6px rgba(255, 255, 0, 1), 0 0 24px 10px rgba(255, 165, 0, 0.7); }
-      }
-      #theme-toggle-button.sparkle { animation: sparkle-effect 1.5s ease-in-out infinite; }
-      /* Animación de estela de FUEGO para el tema claro (sol) */
-      @keyframes meteor-trail {
-        0% {
-          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
-        }
-        50% {
-          box-shadow: 2px -2px 8px rgba(255, 150, 0, 0.8), 
-                      3px -3px 12px rgba(255, 50, 0, 0.6), 
-                      4px -4px 16px rgba(255, 200, 0, 0.5);
-        }
-        100% {
-          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
-        }
-      }
-
-      @keyframes meteor-trail {
-        0% {
-          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
-        }
-        50% {
-          box-shadow: 2px -2px 8px rgba(255, 150, 0, 0.8), 
-                      3px -3px 12px rgba(255, 50, 0, 0.6), 
-                      4px -4px 16px rgba(255, 200, 0, 0.5);
-        }
-        100% {
-          box-shadow: 0 0 0px rgba(255, 100, 0, 0);
-        }
-      }
-
-      /* Animación de estela de HIELO para el tema oscuro (luna) */
-      @keyframes ice-trail {
-        0% {
-          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
-        }
-        50% {
-          box-shadow: 2px -2px 8px rgba(173, 216, 230, 0.9), /* lightblue */
-                      3px -3px 12px rgba(0, 255, 255, 0.7),   /* cyan */
-                      4px -4px 16px rgba(224, 255, 255, 0.6); /* lightcyan */
-        }
-        100% {
-          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
-        }
-      }
-      /* Animación de estela de HIELO para el tema oscuro (luna) */
-      @keyframes ice-trail {
-        0% {
-          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
-        }
-        50% {
-          box-shadow: 2px -2px 8px rgba(173, 216, 230, 0.9), /* lightblue */
-                      3px -3px 12px rgba(0, 255, 255, 0.7),   /* cyan */
-                      4px -4px 16px rgba(224, 255, 255, 0.6); /* lightcyan */
-        }
-        100% {
-          box-shadow: 0 0 0px rgba(0, 255, 255, 0);
-        }
-      }
-
-      /* --- Estilos y Animación para Partículas de Arrastre --- */
-      .theme-drag-particle {
-        position: fixed;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        pointer-events: none;
-        z-index: 9998; /* Justo debajo del botón */
-        animation: particle-fade-out 0.7s ease-out forwards;
-      }
-
-      @keyframes particle-fade-out {
-        from {
-          transform: scale(1);
-          opacity: 0.8;
-        }
-        to {
-          transform: scale(0);
-          opacity: 0;
-        }
-      }
-
-      /* Partículas de fuego para el tema claro */
-      .theme-drag-particle.particle-fire {
-        background: #ffc94d;
-        box-shadow: 0 0 5px #ffc94d, 0 0 10px #ffc94d, 0 0 15px #ff9a2a;
-      }
-      /* Partículas de hielo para el tema oscuro */
-      .theme-drag-particle.particle-ice {
-        background: #a7d8ff;
-        box-shadow: 0 0 5px #a7d8ff, 0 0 10px #a7d8ff, 0 0 15px #00aaff;
-      }
-      /* --- Estilos del Tutorial --- */
-      .tutorial-active .theme-satellite-button { display: none; }
-      /* Pausar órbita durante el tutorial */
-      .tutorial-active #theme-orbit-wrapper { animation: none !important; }
-
-      @keyframes tutorial-reveal-anim {
-        from { transform: scale(0) rotate(-180deg); opacity: 0; }
-        to { transform: scale(1) rotate(0deg); opacity: 1; }
-      }
-      .theme-satellite-button.tutorial-reveal { animation: tutorial-reveal-anim 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-
-      #theme-tutorial-tooltip {
-        position: absolute;
-        bottom: calc(50% + 30px); /* Posicionado encima del botón central */
-        left: 50%;
-        transform: translateX(-50%) scale(0.9);
-        background-color: var(--color-surface);
-        color: var(--color-text);
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 14px;
-        font-family: sans-serif;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-        border: 1px solid rgba(var(--color-text-rgb), 0.1);
-        white-space: nowrap;
-        opacity: 0;
-        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), bottom 0.3s ease;
-        pointer-events: none;
-        z-index: 10;
-      }
-      #theme-tutorial-tooltip[style*="opacity: 1"] {
-        transform: translateX(-50%) scale(1);
-      }
-
-      .tutorial-active ~ .theme-is-light .theme-satellite-button,
-      .tutorial-active ~ .theme-is-dark .theme-satellite-button { animation: none; }
-      body.theme-is-light .theme-satellite-button { animation: meteor-trail 2s linear infinite; }
-      body.theme-is-dark .theme-satellite-button { animation: ice-trail 2s linear infinite; }
-    `;
-  }
-
   /**
    * Observa la adición de nuevos elementos al DOM para detectar y manejar modales.
    * Los modales se excluyen automáticamente del filtro de inversión para que se muestren correctamente.
@@ -1139,7 +1115,7 @@ class AutoTheme {
 
     // Aplicar a popovers ya existentes en el DOM
     document.querySelectorAll('[popover]').forEach(popover => {
-      popover.addEventListener('toggle', handlePopoverToggle);
+      this.#addEventListener(popover, 'toggle', handlePopoverToggle);
     });
 
     this.#modalObserver = new MutationObserver((mutations) => {
@@ -1162,7 +1138,7 @@ class AutoTheme {
 
             // Si el nuevo nodo es un popover (o contiene popovers), añadir el listener.
             if (node.hasAttribute('popover')) {
-              node.addEventListener('toggle', handlePopoverToggle);
+              this.#addEventListener(node, 'toggle', handlePopoverToggle);
             }
           });
         }
@@ -1205,7 +1181,7 @@ class AutoTheme {
           injectScript(element, doc);
         } else if (doc) {
           // Si el documento no está listo, esperar al evento 'load'.
-          element.addEventListener('load', () => injectScript(element, doc), { once: true });
+          this.#addEventListener(element, 'load', () => injectScript(element, doc), { once: true });
         }
       } catch (e) {
         // Es un contexto de origen cruzado, lo ignoramos.
@@ -1214,28 +1190,37 @@ class AutoTheme {
 
     document.querySelectorAll('iframe, object').forEach(trySync);
   }
+
+  /**
+   * Wrapper para addEventListener que guarda una referencia para poder limpiarlo después.
+   * @param {EventTarget} target - El elemento al que añadir el listener.
+   * @param {string} type - El tipo de evento.
+   * @param {Function} listener - El callback.
+   * @param {object} options - Opciones para addEventListener.
+   */
+  #addEventListener(target, type, listener, options) {
+    target.addEventListener(type, listener, options);
+    this.#listeners.push({ target, type, listener, options });
+  }
+
+  /**
+   * Wrapper para removeEventListener que también lo elimina de nuestro array de seguimiento.
+   * @param {EventTarget} target
+   * @param {string} type
+   * @param {Function} listener
+   */
+  #removeEventListener(target, type, listener) {
+    target.removeEventListener(type, listener);
+    this.#listeners = this.#listeners.filter(
+      l => !(l.target === target && l.type === type && l.listener === listener)
+    );
+  }
+
   /**
    * Método de inicialización principal. Se llama desde el constructor.
    */
   #init() {
     const isInsideIframe = window.self !== window.top;
-// Pega este código en la consola de las herramientas de desarrollo y presiona Enter.
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-    if (registrations.length === 0) {
-      console.log('No hay Service Workers registrados. El problema puede ser otro (ej. una extensión).');
-    }
-    for(let registration of registrations) {
-      registration.unregister();
-      console.log('Service Worker desregistrado:', registration);
-    }
-    if (registrations.length > 0) {
-        console.log('¡Listo! Recarga la página.');
-    }
-  });
-} else {
-    console.log('Tu navegador no soporta Service Workers.');
-}
 
     // Inyecta los estilos, el área de accesibilidad y el botón.
     // Si está en un iframe, no crea un nuevo botón, solo gestiona el tema.
@@ -1250,7 +1235,7 @@ if ('serviceWorker' in navigator) {
     if (!isInsideIframe) {
       this.#syncNestedContexts(); // La ventana principal busca iframes para sincronizar.
       // El padre escucha peticiones de estado de los hijos.
-      window.addEventListener('message', (event) => {
+      this.#addEventListener(window, 'message', (event) => {
         if (event.source && event.data === 'request-theme-state') {
           console.log('AutoTheme (parent): Child iframe requested theme state. Responding.', event.source);
           event.source.postMessage({ type: 'theme-state', isDark: this.#isDark }, event.origin);
@@ -1262,7 +1247,7 @@ if ('serviceWorker' in navigator) {
     this.#isPageInitiallyDark = this.#isColorDark(this.#getEffectiveBackgroundColor());
 
     // Comprueba si hay una preferencia guardada en localStorage.
-    const savedPreference = localStorage.getItem('theme-preference');
+    const savedPreference = localStorage.getItem(STORAGE_KEYS.THEME);
     // Si no hay preferencia guardada, comprueba la preferencia del sistema operativo.
     const systemPreference = window.matchMedia('(prefers-color-scheme: dark)');
     const initialThemeIsDark = savedPreference === 'dark' || (savedPreference === null && systemPreference.matches);
@@ -1273,13 +1258,13 @@ if ('serviceWorker' in navigator) {
     if (isInsideIframe) {
       const parentWindow = window.parent;
       // 1. Escuchamos los cambios de tema futuros.
-      parentWindow.addEventListener('themechange', (e) => {
+      this.#addEventListener(parentWindow, 'themechange', (e) => {
         console.log('AutoTheme (in iframe): Syncing with parent theme.', e.detail);
         this.setTheme(e.detail.isDark, false); // El cambio no es manual
       });
 
       // 2. Escuchamos la respuesta del padre a nuestra petición inicial.
-      window.addEventListener('message', (event) => {
+      this.#addEventListener(window, 'message', (event) => {
         if (event.source === parentWindow && event.data.type === 'theme-state') {
           this.setTheme(event.data.isDark, false);
         }
@@ -1291,7 +1276,7 @@ if ('serviceWorker' in navigator) {
 
     // Escucha los cambios en la preferencia del sistema operativo.
     let debounceTimer;
-    systemPreference.addEventListener('change', (e) => {
+    this.#addEventListener(systemPreference, 'change', (e) => {
       // Si el tutorial está activo, no cambies el tema automáticamente.
       if (this.#tutorialActive) {
         return;
@@ -1300,14 +1285,14 @@ if ('serviceWorker' in navigator) {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         // Solo cambia el tema si el usuario no ha establecido una preferencia manual.
-        if (localStorage.getItem('theme-preference') === null) {
+        if (localStorage.getItem(STORAGE_KEYS.THEME) === null) {
           requestAnimationFrame(() => this.setTheme(e.matches));
         }
       }, 100);
     });
 
     // Atajo de teclado para restaurar el botón si está oculto.
-    window.addEventListener('keydown', (e) => {
+    this.#addEventListener(window, 'keydown', (e) => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => { // Usamos un pequeño timeout para evitar conflictos con el tutorial
         if (this.#isTriggerPermanentlyHidden && e.key.toLowerCase() === this.#shortcutKey) {
@@ -1319,6 +1304,24 @@ if ('serviceWorker' in navigator) {
     // Observa cambios en los atributos `style` o `class` del body para recalcular el tema si es necesario.
     const observer = new MutationObserver(() => this.recalculatePageTheme());
     observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
+  }
+
+  /**
+   * Limpia todos los elementos del DOM y los event listeners creados por esta instancia.
+   * Es útil para desmontar el componente de forma limpia.
+   */
+  destroy() {
+    // Eliminar elementos del DOM
+    this.#triggerContainer?.remove();
+    this.#modalObserver?.disconnect();
+
+    // Eliminar todos los event listeners registrados
+    this.#listeners.forEach(({ target, type, listener, options }) => {
+      target.removeEventListener(type, listener, options);
+    });
+    this.#listeners = []; // Limpiar el array
+
+    console.log('AutoTheme instance and its listeners have been destroyed.');
   }
 }
 
@@ -1348,7 +1351,7 @@ new AutoTheme(myBrandColors, {
  * Inyecta un botón flotante que abre un modal con vistas previas de los degradados.
  * @author HECTOR DANIEL AYARACHI FUENTES (con asistencia de Gemini Code Assist)
  */
-class GradientSelector {
+export class GradientSelector {
     #gradients;
     #modal;
     #backgroundElement;
@@ -1372,7 +1375,7 @@ class GradientSelector {
         this.#applySavedGradient();
 
         // Cierra el modal si se hace clic fuera de él
-        this.#modal.addEventListener('click', (e) => {
+        this.#modal.addEventListener('click', (e) => { // eslint-disable-line
             if (e.target === this.#modal) {
                 this.toggleModal(false);
             }
