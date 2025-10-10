@@ -71,6 +71,11 @@ describe('AutoTheme', () => {
     if (Element.prototype.animate.mockClear) {
       Element.prototype.animate.mockClear();
     }
+    // Mock para evitar el error de parsing de CSS en JSDOM.
+    // Esto previene que los estilos se inyecten en el head durante las pruebas.
+    jest.spyOn(document.head, 'appendChild').mockImplementation(el => {
+      if (el.tagName === 'STYLE') return null;
+    });
   });
 
   test('debería inicializarse correctamente y crear el botón de tema', () => {
