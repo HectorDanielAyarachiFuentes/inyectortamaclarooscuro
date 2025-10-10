@@ -79,6 +79,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ---
 
+## 🧪 Pruebas y Cobertura
+
+La robustez y fiabilidad de `AutoTheme.js` están garantizadas a través de un conjunto completo de pruebas unitarias y de integración desarrolladas con Jest. Esto asegura que cada característica, desde la lógica de inversión de color hasta las interacciones del DOM y los casos límite, funcione como se espera.
+
+El proyecto mantiene un alto nivel de cobertura de código, como se muestra en el último informe de pruebas:
+
+```bash
+--------------------|---------|----------|---------|---------|------------------------------------------------------------
+File                | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+--------------------|---------|----------|---------|---------|------------------------------------------------------------
+All files           |   79.83 |    64.04 |   61.42 |      84 |                                                            
+ theme-generator.js |   79.83 |    64.04 |   61.42 |      84 | ...-1304,1341,1404,1410,1416,1563-1566,1578-1579,2124-2127 
+--------------------|---------|----------|---------|---------|------------------------------------------------------------
+
+Test Suites: 3 passed, 3 total
+Tests:       24 passed, 24 total
+Snapshots:   0 total
+Time:        4.185 s
+```
+
+---
+
 ## ⚔️ Desafíos Conquistados
 
 Este script ha sido probado y optimizado para manejar una gran cantidad de casos límite de CSS que a menudo causan problemas con los inversores de tema. La página de demostración incluye pruebas para todos estos niveles de desafío:
